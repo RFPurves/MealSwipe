@@ -1,0 +1,17 @@
+# dependencies
+/node_modules
+
+# Next.js output
+/.next
+/out
+
+# local build and editor files
+*.tsbuildinfo
+.DS_Store
+.env*
+!.env.example
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
