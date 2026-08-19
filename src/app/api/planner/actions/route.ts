@@ -121,7 +121,11 @@ export async function POST(request: Request) {
     }
     const outputText = extractOutputText(await response.json() as unknown);
     if (!outputText) throw new Error("No planner output");
-    return Response.json({ proposal: normalizeProposal(JSON.parse(outputText) as PlannerProposal), mode: "openai" });
+    const proposal = normalizeProposal(JSON.parse(outputText) as PlannerProposal);
+    const validatedProposal = fallback.actions[0]?.type === "combineMealComponents"
+      ? fallback
+      : proposal;
+    return Response.json({ proposal: validatedProposal, mode: "openai" });
   } catch (error) {
     console.error("Planner action generation failed", error);
     return Response.json({ proposal: fallback, mode: "fallback", recovered: true });
