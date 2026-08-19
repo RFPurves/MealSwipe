@@ -211,8 +211,15 @@ export async function POST(request: Request) {
     });
     if (!response.ok) {
       const errorPayload = await response.json().catch(() => undefined) as
-        | { error?: { code?: string } }
+        | { error?: { type?: string; code?: string; param?: string; message?: string } }
         | undefined;
+      console.error("OpenAI recipe request rejected", {
+        status: response.status,
+        type: errorPayload?.error?.type,
+        code: errorPayload?.error?.code,
+        param: errorPayload?.error?.param,
+        message: errorPayload?.error?.message,
+      });
       if (response.status === 429) {
         return Response.json({
           meal: fallback,

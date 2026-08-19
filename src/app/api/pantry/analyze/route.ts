@@ -35,7 +35,19 @@ export async function POST(request: Request) {
         text: { format: { type: "json_schema", name: "pantry_items", strict: true, schema: pantrySchema } },
       }),
     });
-    if (!response.ok) throw new Error(`Image analysis failed with ${response.status}`);
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => undefined) as
+        | { error?: { type?: string; code?: string; param?: string; message?: string } }
+        | undefined;
+      console.error("OpenAI pantry request rejected", {
+        status: response.status,
+        type: errorPayload?.error?.type,
+        code: errorPayload?.error?.code,
+        param: errorPayload?.error?.param,
+        message: errorPayload?.error?.message,
+      });
+      throw new Error(`Image analysis failed with ${response.status}`);
+    }
     const outputText = extractOutputText(await response.json() as unknown);
     if (!outputText) throw new Error("No image analysis output");
     return Response.json({ result: JSON.parse(outputText), mode: "openai" });
