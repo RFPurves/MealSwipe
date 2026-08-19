@@ -262,12 +262,14 @@ export function DiscoverExperience() {
 
   if (videos === null) {
     return (
-      <section className="video-loading">
-        <div className="video-loading-card">
-          <div className="video-loading-glow"><Sparkles size={28} /></div>
-          <LoaderCircle className="spin" size={22} />
-          <h2>Finding your cooking feed</h2>
-          <p>Searching for embeddable recipes that match your taste.</p>
+      <section className="video-loading" aria-live="polite">
+        <div className="video-loading-skeleton" aria-hidden="true">
+          <span className="skeleton-control" />
+          <div><span /><span /><span /></div>
+        </div>
+        <div className="video-loading-caption">
+          <LoaderCircle className="spin" size={17} />
+          <span>Building your cooking feed…</span>
         </div>
       </section>
     );

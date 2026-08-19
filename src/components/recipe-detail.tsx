@@ -23,6 +23,15 @@ export function RecipeDetail({ mealId }: { mealId: string }) {
 
   const aiGenerated = meal.recipeOrigin === "ai-estimated";
   const metadataFallback = meal.recipeOrigin === "fallback-estimated";
+  const combined = meal.recipeOrigin === "combined";
+  const sourcePlatform = meal.source?.platform ?? (meal.sourceType === "youtube" ? "youtube" : "curated");
+  const generationLabel = combined
+    ? "Combined recipe"
+    : aiGenerated
+      ? "AI-estimated recipe"
+      : metadataFallback
+        ? "Metadata estimate"
+        : "Curated recipe";
   return (
     <article className="recipe-detail">
       <Link className="recipe-back" href="/saved"><ArrowLeft size={16} /> Saved meals</Link>
@@ -55,7 +64,7 @@ export function RecipeDetail({ mealId }: { mealId: string }) {
         <div className={`recipe-safety-callout ${meal.safetyStatus === "safe" ? "is-safe" : "is-review"}`}>
           {meal.safetyStatus === "safe" ? <ShieldCheck size={20} /> : <AlertTriangle size={20} />}
           <div>
-            <strong>{meal.safetyStatus === "safe" ? "Checked against your preferences" : "Review this recipe before planning"}</strong>
+            <strong>{meal.safetyStatus === "safe" ? "Checked against your household" : "Review this recipe before planning"}</strong>
             <p>{meal.safetyNotes?.[0] ?? "Video recipes can contain ingredients not listed in their metadata."}</p>
           </div>
         </div>
@@ -65,11 +74,13 @@ export function RecipeDetail({ mealId }: { mealId: string }) {
         <section className="recipe-panel recipe-source-panel">
           <div className="recipe-panel-heading">
             <div><p className="eyebrow">Recipe provenance</p><h2>Source &amp; safety</h2></div>
-            <span><Sparkles size={12} /> {aiGenerated ? "AI recipe" : "Metadata estimate"}</span>
+            <span><Sparkles size={12} /> {generationLabel}</span>
           </div>
           <div className="recipe-meta-grid">
-            <div><span>Video ID</span><strong>{meal.youtubeVideoId}</strong></div>
-            <div><span>Creator</span><strong>{meal.channelTitle}</strong></div>
+            <div><span>Platform</span><strong>{titleCase(sourcePlatform)}</strong></div>
+            <div><span>Source ID</span><strong>{meal.source?.contentId ?? meal.youtubeVideoId ?? "Cached demo source"}</strong></div>
+            <div><span>Creator</span><strong>{meal.source?.creator ?? meal.channelTitle ?? "MealSwipe"}</strong></div>
+            <div><span>Original title</span><strong>{meal.source?.originalTitle ?? meal.title}</strong></div>
             <div><span>Dietary tags</span><strong>{meal.dietary.length ? meal.dietary.join(", ") : "No specific diet"}</strong></div>
             <div><span>Allergens</span><strong>{meal.allergens.length ? meal.allergens.join(", ") : "None declared"}</strong></div>
           </div>
@@ -106,8 +117,13 @@ export function RecipeDetail({ mealId }: { mealId: string }) {
           Watch original on YouTube <ExternalLink size={15} />
         </a>
       ) : null}
-      {aiGenerated ? <p className="recipe-estimate-note">OpenAI generated this structured recipe from the creator&apos;s public video metadata. Quantities remain estimates; the original video is the source of truth.</p> : null}
+      {aiGenerated && meal.source?.url ? <p className="recipe-estimate-note">OpenAI generated this structured recipe from the creator&apos;s public video metadata. Quantities remain estimates; the original video is the source of truth.</p> : null}
+      {aiGenerated && !meal.source?.url ? <p className="recipe-estimate-note">This cached demo recipe keeps its platform and creator attribution, but does not depend on a live source link. Ingredients and quantities remain clearly marked as estimates.</p> : null}
       {metadataFallback ? <p className="recipe-estimate-note">OpenAI was unavailable, so these details are a metadata-based fallback. Review them against the original video before cooking.</p> : null}
     </article>
   );
+}
+
+function titleCase(value: string) {
+  return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

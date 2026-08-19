@@ -4,8 +4,8 @@ import { AppProvider } from "@/components/app-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MealSwipe — Swipe Your Weekly Meal Plan",
-  description: "Discover meals you love and turn them into a smarter week.",
+  title: "MealSwipe — Turn Food Inspiration Into Your Week",
+  description: "Swipe real cooking videos. AI turns your favourites into a personalized weekly plan and one shopping list.",
 };
 
 export const viewport: Viewport = {

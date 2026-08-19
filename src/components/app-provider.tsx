@@ -9,49 +9,211 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Meal, Preferences, YouTubeMealCandidate } from "@/types";
-import { defaultPreferences } from "@/types";
+import type {
+  Household,
+  Meal,
+  OptimizationObjective,
+  PantryItem,
+  Preferences,
+  YouTubeMealCandidate,
+} from "@/types";
+import { defaultHousehold, defaultPreferences } from "@/types";
 
-const STORAGE_KEY = "meal-swipe-state-v3";
-const LEGACY_STORAGE_KEYS = ["meal-swipe-state-v2", "meal-swipe-state-v1"];
+const STORAGE_KEY = "meal-swipe-state-v4";
+const LEGACY_STORAGE_KEYS = ["meal-swipe-state-v3", "meal-swipe-state-v2", "meal-swipe-state-v1"];
 
 interface StoredState {
   hasOnboarded: boolean;
   preferences: Preferences;
+  household: Household;
   savedIds: string[];
   skippedIds: string[];
-  weeklyPlanIds: string[];
+  weeklyPlanIds: (string | null)[];
   planRevision: number;
   dynamicMeals: Meal[];
   checkedShoppingItems: string[];
+  optimizationObjective: OptimizationObjective;
+  pantryItems: PantryItem[];
+  usePantryFirst: boolean;
+  demoMode: boolean;
+  lastPlanChange?: string;
 }
 
 interface AppContextValue extends StoredState {
   hydrated: boolean;
-  completeOnboarding: (preferences: Preferences) => void;
+  completeOnboarding: (preferences: Preferences, household?: Household) => void;
+  updateHousehold: (household: Household) => void;
   likeMeal: (id: string) => void;
   skipMeal: (id: string) => void;
   removeSavedMeal: (id: string) => void;
   saveVideoMeal: (candidate: YouTubeMealCandidate) => string;
   updateVideoRecipe: (id: string, meal: Meal) => void;
   markRecipeFailed: (id: string) => void;
-  saveWeeklyPlan: (mealIds: string[]) => void;
-  replaceWeeklyMeal: (dayIndex: number, mealId: string) => void;
+  saveWeeklyPlan: (mealIds: (string | null)[], summary?: string) => void;
+  replaceWeeklyMeal: (dayIndex: number, mealId: string, summary?: string) => void;
+  swapWeeklyDays: (firstIndex: number, secondIndex: number, summary?: string) => void;
+  moveWeeklyMeal: (fromIndex: number, toIndex: number, summary?: string) => void;
+  removeWeeklyMeal: (dayIndex: number, summary?: string) => void;
+  addDynamicMeal: (meal: Meal) => void;
+  setOptimizationObjective: (objective: OptimizationObjective) => void;
+  addPantryItems: (items: Omit<PantryItem, "id">[]) => void;
+  removePantryItem: (id: string) => void;
+  setUsePantryFirst: (value: boolean) => void;
   toggleShoppingItem: (name: string) => void;
   resetDiscovery: () => void;
+  loadDemoState: () => void;
   resetApp: () => void;
 }
 
 const initialState: StoredState = {
   hasOnboarded: false,
   preferences: defaultPreferences,
+  household: defaultHousehold,
   savedIds: [],
   skippedIds: [],
   weeklyPlanIds: [],
   planRevision: 0,
   dynamicMeals: [],
   checkedShoppingItems: [],
+  optimizationObjective: "balanced",
+  pantryItems: [],
+  usePantryFirst: false,
+  demoMode: false,
 };
+
+const demoMeals: Meal[] = [
+  {
+    id: "youtube:demo-salmon",
+    title: "Maple Miso Salmon",
+    description: "A cached demo recipe inspired by a short-form cooking video, with a glossy miso glaze.",
+    image: "https://images.unsplash.com/photo-1467003909585-2f8a72700288?auto=format&fit=crop&w=1200&q=90",
+    category: "Seafood",
+    categories: ["Seafood", "Asian", "High protein"],
+    timeMinutes: 25,
+    calories: 540,
+    proteinGrams: 42,
+    servings: 4,
+    dietary: ["Pescatarian", "High protein"],
+    allergens: ["Soy"],
+    ingredients: [
+      { name: "salmon fillet", amount: 640, unit: "g" },
+      { name: "white miso", amount: 3, unit: "tbsp" },
+      { name: "maple syrup", amount: 2, unit: "tbsp" },
+      { name: "broccoli", amount: 400, unit: "g" },
+      { name: "lemon", amount: 1, unit: "pc" },
+    ],
+    instructions: ["Whisk the miso glaze.", "Roast the salmon and broccoli until just cooked.", "Finish with lemon."],
+    sourceType: "youtube",
+    channelTitle: "The Weeknight Kitchen",
+    recipeOrigin: "ai-estimated",
+    recipeStatus: "ready",
+    safetyStatus: "safe",
+    safetyNotes: ["Cached demo recipe. Quantities are AI-estimated and should be reviewed."],
+    source: { platform: "youtube", creator: "The Weeknight Kitchen", originalTitle: "Maple miso salmon dinner", generationMethod: "ai-estimated" },
+  },
+  {
+    id: "youtube:demo-potatoes",
+    title: "Crispy Herb Potatoes & Greens",
+    description: "Golden roasted potatoes with lemony greens—the side built for Thursday's dinner.",
+    image: "https://images.unsplash.com/photo-1518013431117-eb1465fa5752?auto=format&fit=crop&w=1200&q=90",
+    category: "Vegetarian",
+    categories: ["Vegetarian", "Mediterranean"],
+    timeMinutes: 35,
+    calories: 430,
+    proteinGrams: 14,
+    servings: 4,
+    dietary: ["Vegetarian", "Vegan"],
+    allergens: [],
+    ingredients: [
+      { name: "baby potatoes", amount: 800, unit: "g" },
+      { name: "spinach", amount: 180, unit: "g" },
+      { name: "lemon", amount: 1, unit: "pc" },
+      { name: "garlic", amount: 3, unit: "cloves" },
+      { name: "olive oil", amount: 3, unit: "tbsp" },
+    ],
+    instructions: ["Roast the potatoes until crisp.", "Wilt the greens with garlic.", "Finish with lemon."],
+    sourceType: "youtube",
+    channelTitle: "Everyday Plates",
+    recipeOrigin: "ai-estimated",
+    recipeStatus: "ready",
+    safetyStatus: "safe",
+    safetyNotes: ["Cached demo recipe. Ingredients are AI-estimated from source metadata."],
+    source: { platform: "youtube", creator: "Everyday Plates", originalTitle: "The crispiest roast potatoes", generationMethod: "ai-estimated" },
+  },
+  {
+    id: "youtube:demo-tomatoes",
+    title: "Creamy Tomato Butter Beans",
+    description: "Silky tomato beans with spinach and basil for an easy pantry-first dinner.",
+    image: "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=1200&q=90",
+    category: "Mediterranean",
+    categories: ["Mediterranean", "Vegetarian", "Quick meals"],
+    timeMinutes: 20,
+    calories: 470,
+    proteinGrams: 23,
+    servings: 4,
+    dietary: ["Vegetarian"],
+    allergens: ["Dairy"],
+    ingredients: [
+      { name: "butter beans", amount: 500, unit: "g" },
+      { name: "crushed tomatoes", amount: 400, unit: "g" },
+      { name: "spinach", amount: 150, unit: "g" },
+      { name: "cream", amount: 120, unit: "ml" },
+      { name: "basil", amount: 1, unit: "bunch" },
+    ],
+    sourceType: "youtube",
+    channelTitle: "Dinner in Twenty",
+    recipeOrigin: "ai-estimated",
+    recipeStatus: "ready",
+    safetyStatus: "safe",
+    safetyNotes: ["Cached demo recipe. Ingredients are AI-estimated from source metadata."],
+    source: { platform: "youtube", creator: "Dinner in Twenty", originalTitle: "20 minute butter beans", generationMethod: "ai-estimated" },
+  },
+];
+
+function vcDemoState(): StoredState {
+  return {
+    hasOnboarded: true,
+    preferences: {
+      dietary: "Pescatarian",
+      allergies: ["Nuts"],
+      dislikedIngredients: ["Mushrooms", "Coriander"],
+      categories: ["Seafood", "Mediterranean", "Quick meals", "High protein"],
+    },
+    household: {
+      name: "The Purves household",
+      members: [
+        { id: "rab", name: "Rab", dietary: "Everything", allergies: [], dislikedIngredients: ["Mushrooms"], nutritionPreference: "High protein" },
+        { id: "sonia", name: "Sonia", dietary: "Pescatarian", allergies: ["Nuts"], dislikedIngredients: ["Coriander"], nutritionPreference: "Balanced" },
+      ],
+      settings: { adults: 2, children: 0, dinnersPerWeek: 7, maximumCookingTime: 40, weeklyBudget: 95 },
+    },
+    savedIds: demoMeals.map((meal) => meal.id),
+    skippedIds: [],
+    weeklyPlanIds: [
+      "miso-salmon-bowl", "youtube:demo-salmon", "coconut-chickpea-curry",
+      "youtube:demo-potatoes", "baked-feta-salmon", "green-goddess-gnocchi", "shakshuka-feta",
+    ],
+    planRevision: 1,
+    dynamicMeals: demoMeals,
+    checkedShoppingItems: [],
+    optimizationObjective: "least-waste",
+    pantryItems: ["eggs", "feta", "spinach", "tomatoes", "cucumber", "rice"].map((name, index) => ({ id: `demo-pantry-${index}`, name, source: "demo", confirmed: true })),
+    usePantryFirst: true,
+    demoMode: true,
+    lastPlanChange: "VC demo week loaded",
+  };
+}
+
+function normalizeStored(parsed: Partial<StoredState>): StoredState {
+  return {
+    ...initialState,
+    ...parsed,
+    household: parsed.household ?? defaultHousehold,
+    weeklyPlanIds: (parsed.weeklyPlanIds ?? []).map((id) => id || null),
+    optimizationObjective: parsed.optimizationObjective ?? "balanced",
+    pantryItems: parsed.pantryItems ?? [],
+  };
+}
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -62,11 +224,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const hydrateTimer = window.setTimeout(() => {
       try {
-        const stored =
-          window.localStorage.getItem(STORAGE_KEY) ??
-          LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
-        if (stored) {
-          setState({ ...initialState, ...(JSON.parse(stored) as StoredState) });
+        if (new URLSearchParams(window.location.search).get("demo") === "vc") {
+          setState(vcDemoState());
+        } else {
+          const stored = window.localStorage.getItem(STORAGE_KEY)
+            ?? LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
+          if (stored) setState(normalizeStored(JSON.parse(stored) as Partial<StoredState>));
         }
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
@@ -74,51 +237,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setHydrated(true);
       }
     }, 0);
-
     return () => window.clearTimeout(hydrateTimer);
   }, []);
 
   useEffect(() => {
-    if (hydrated) {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    }
+    if (hydrated) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [hydrated, state]);
 
-  const completeOnboarding = useCallback((preferences: Preferences) => {
+  const completeOnboarding = useCallback((preferences: Preferences, household?: Household) => {
+    const nextHousehold = household ?? {
+      ...defaultHousehold,
+      members: [{
+        ...defaultHousehold.members[0],
+        dietary: preferences.dietary,
+        allergies: preferences.allergies,
+        dislikedIngredients: preferences.dislikedIngredients,
+      }],
+    };
     setState((current) => ({
       ...current,
       hasOnboarded: true,
       preferences,
+      household: nextHousehold,
       weeklyPlanIds: [],
       checkedShoppingItems: [],
+      demoMode: false,
     }));
   }, []);
 
-  const likeMeal = useCallback((id: string) => {
-    setState((current) => ({
-      ...current,
-      savedIds: current.savedIds.includes(id)
-        ? current.savedIds
-        : [...current.savedIds, id],
-      skippedIds: current.skippedIds.filter((mealId) => mealId !== id),
-    }));
-  }, []);
-
-  const skipMeal = useCallback((id: string) => {
-    setState((current) => ({
-      ...current,
-      skippedIds: current.skippedIds.includes(id)
-        ? current.skippedIds
-        : [...current.skippedIds, id],
-    }));
-  }, []);
-
-  const removeSavedMeal = useCallback((id: string) => {
-    setState((current) => ({
-      ...current,
-      savedIds: current.savedIds.filter((mealId) => mealId !== id),
-    }));
-  }, []);
+  const updateHousehold = useCallback((household: Household) => setState((current) => ({ ...current, household, weeklyPlanIds: [], checkedShoppingItems: [] })), []);
+  const likeMeal = useCallback((id: string) => setState((current) => ({ ...current, savedIds: current.savedIds.includes(id) ? current.savedIds : [...current.savedIds, id], skippedIds: current.skippedIds.filter((mealId) => mealId !== id) })), []);
+  const skipMeal = useCallback((id: string) => setState((current) => ({ ...current, skippedIds: current.skippedIds.includes(id) ? current.skippedIds : [...current.skippedIds, id] })), []);
+  const removeSavedMeal = useCallback((id: string) => setState((current) => ({ ...current, savedIds: current.savedIds.filter((mealId) => mealId !== id) })), []);
 
   const saveVideoMeal = useCallback((candidate: YouTubeMealCandidate) => {
     const id = `youtube:${candidate.videoId}`;
@@ -134,7 +284,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         timeMinutes: Math.max(5, Math.ceil(candidate.durationSeconds / 60)),
         calories: 0,
         proteinGrams: 0,
-        servings: 2,
+        servings: Math.max(1, current.household.settings.adults + Math.ceil(current.household.settings.children / 2)),
         dietary: [],
         allergens: [],
         ingredients: [],
@@ -143,133 +293,81 @@ export function AppProvider({ children }: { children: ReactNode }) {
         youtubeUrl: candidate.sourceUrl,
         channelTitle: candidate.channelTitle,
         sourceDescription: candidate.description,
+        source: { platform: "youtube", contentId: candidate.videoId, url: candidate.sourceUrl, creator: candidate.channelTitle, originalTitle: candidate.title, generationMethod: "fallback-estimated" },
         recipeStatus: "creating",
         recipeOrigin: "fallback-estimated",
         safetyStatus: "review-needed",
         safetyNotes: ["Recipe details are still being created."],
       };
-
-      return {
-        ...current,
-        savedIds: current.savedIds.includes(id) ? current.savedIds : [...current.savedIds, id],
-        skippedIds: current.skippedIds.filter((mealId) => mealId !== id),
-        dynamicMeals: existing ? current.dynamicMeals : [...current.dynamicMeals, placeholder],
-      };
+      return { ...current, savedIds: current.savedIds.includes(id) ? current.savedIds : [...current.savedIds, id], skippedIds: current.skippedIds.filter((mealId) => mealId !== id), dynamicMeals: existing ? current.dynamicMeals : [...current.dynamicMeals, placeholder] };
     });
     return id;
   }, []);
 
-  const updateVideoRecipe = useCallback((id: string, meal: Meal) => {
-    setState((current) => ({
-      ...current,
-      dynamicMeals: current.dynamicMeals.map((existing) =>
-        existing.id === id ? { ...meal, id } : existing,
-      ),
-    }));
-  }, []);
+  const updateVideoRecipe = useCallback((id: string, meal: Meal) => setState((current) => ({ ...current, dynamicMeals: current.dynamicMeals.map((existing) => existing.id === id ? { ...meal, id } : existing) })), []);
+  const markRecipeFailed = useCallback((id: string) => setState((current) => ({ ...current, dynamicMeals: current.dynamicMeals.map((meal) => meal.id === id ? { ...meal, recipeStatus: "failed", safetyStatus: "review-needed", safetyNotes: ["We could not verify this recipe. Review the source before cooking."] } : meal) })), []);
 
-  const markRecipeFailed = useCallback((id: string) => {
-    setState((current) => ({
-      ...current,
-      dynamicMeals: current.dynamicMeals.map((meal) =>
-        meal.id === id
-          ? {
-              ...meal,
-              recipeStatus: "failed",
-              safetyStatus: "review-needed",
-              safetyNotes: ["We could not verify this recipe. Review the source before cooking."],
-            }
-          : meal,
-      ),
-    }));
-  }, []);
+  const saveWeeklyPlan = useCallback((mealIds: (string | null)[], summary = "Weekly plan updated") => setState((current) => ({ ...current, weeklyPlanIds: mealIds, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary })), []);
+  const replaceWeeklyMeal = useCallback((dayIndex: number, mealId: string, summary = "Meal replaced") => setState((current) => ({ ...current, weeklyPlanIds: Array.from({ length: 7 }, (_, index) => index === dayIndex ? mealId : current.weeklyPlanIds[index] ?? null), planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary })), []);
+  const swapWeeklyDays = useCallback((firstIndex: number, secondIndex: number, summary = "Days swapped") => setState((current) => {
+    const next = Array.from({ length: 7 }, (_, index) => current.weeklyPlanIds[index] ?? null);
+    [next[firstIndex], next[secondIndex]] = [next[secondIndex], next[firstIndex]];
+    return { ...current, weeklyPlanIds: next, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary };
+  }), []);
+  const moveWeeklyMeal = useCallback((fromIndex: number, toIndex: number, summary = "Meal moved") => setState((current) => {
+    const next = Array.from({ length: 7 }, (_, index) => current.weeklyPlanIds[index] ?? null);
+    const moved = next[fromIndex];
+    next[fromIndex] = next[toIndex];
+    next[toIndex] = moved;
+    return { ...current, weeklyPlanIds: next, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary };
+  }), []);
+  const removeWeeklyMeal = useCallback((dayIndex: number, summary = "Meal removed") => setState((current) => ({ ...current, weeklyPlanIds: Array.from({ length: 7 }, (_, index) => index === dayIndex ? null : current.weeklyPlanIds[index] ?? null), planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary })), []);
+  const addDynamicMeal = useCallback((meal: Meal) => setState((current) => ({ ...current, dynamicMeals: [...current.dynamicMeals.filter((item) => item.id !== meal.id), meal] })), []);
+  const setOptimizationObjective = useCallback((optimizationObjective: OptimizationObjective) => setState((current) => ({ ...current, optimizationObjective })), []);
+  const addPantryItems = useCallback((items: Omit<PantryItem, "id">[]) => setState((current) => {
+    const existing = new Set(current.pantryItems.map((item) => item.name.toLowerCase()));
+    const next = items.filter((item) => !existing.has(item.name.toLowerCase())).map((item, index) => ({ ...item, id: `pantry-${Date.now()}-${index}` }));
+    return { ...current, pantryItems: [...current.pantryItems, ...next], checkedShoppingItems: [] };
+  }), []);
+  const removePantryItem = useCallback((id: string) => setState((current) => ({ ...current, pantryItems: current.pantryItems.filter((item) => item.id !== id), checkedShoppingItems: [] })), []);
+  const setUsePantryFirst = useCallback((usePantryFirst: boolean) => setState((current) => ({ ...current, usePantryFirst })), []);
+  const toggleShoppingItem = useCallback((name: string) => setState((current) => ({ ...current, checkedShoppingItems: current.checkedShoppingItems.includes(name) ? current.checkedShoppingItems.filter((item) => item !== name) : [...current.checkedShoppingItems, name] })), []);
+  const resetDiscovery = useCallback(() => setState((current) => ({ ...current, skippedIds: [], savedIds: [], weeklyPlanIds: [], dynamicMeals: [], checkedShoppingItems: [] })), []);
+  const loadDemoState = useCallback(() => setState(vcDemoState()), []);
+  const resetApp = useCallback(() => setState(initialState), []);
 
-  const saveWeeklyPlan = useCallback((mealIds: string[]) => {
-    setState((current) => ({
-      ...current,
-      weeklyPlanIds: mealIds,
-      planRevision: current.planRevision + 1,
-      checkedShoppingItems: [],
-    }));
-  }, []);
-
-  const replaceWeeklyMeal = useCallback((dayIndex: number, mealId: string) => {
-    setState((current) => ({
-      ...current,
-      weeklyPlanIds: current.weeklyPlanIds.map((id, index) =>
-        index === dayIndex ? mealId : id,
-      ),
-      planRevision: current.planRevision + 1,
-      checkedShoppingItems: [],
-    }));
-  }, []);
-
-  const toggleShoppingItem = useCallback((name: string) => {
-    setState((current) => ({
-      ...current,
-      checkedShoppingItems: current.checkedShoppingItems.includes(name)
-        ? current.checkedShoppingItems.filter((item) => item !== name)
-        : [...current.checkedShoppingItems, name],
-    }));
-  }, []);
-
-  const resetDiscovery = useCallback(() => {
-    setState((current) => ({
-      ...current,
-      skippedIds: [],
-      savedIds: [],
-      weeklyPlanIds: [],
-      dynamicMeals: [],
-      checkedShoppingItems: [],
-    }));
-  }, []);
-
-  const resetApp = useCallback(() => {
-    setState(initialState);
-  }, []);
-
-  const value = useMemo<AppContextValue>(
-    () => ({
-      ...state,
-      hydrated,
-      completeOnboarding,
-      likeMeal,
-      skipMeal,
-      removeSavedMeal,
-      saveVideoMeal,
-      updateVideoRecipe,
-      markRecipeFailed,
-      saveWeeklyPlan,
-      replaceWeeklyMeal,
-      toggleShoppingItem,
-      resetDiscovery,
-      resetApp,
-    }),
-    [
-      state,
-      hydrated,
-      completeOnboarding,
-      likeMeal,
-      skipMeal,
-      removeSavedMeal,
-      saveVideoMeal,
-      updateVideoRecipe,
-      markRecipeFailed,
-      saveWeeklyPlan,
-      replaceWeeklyMeal,
-      toggleShoppingItem,
-      resetDiscovery,
-      resetApp,
-    ],
-  );
+  const value = useMemo<AppContextValue>(() => ({
+    ...state,
+    hydrated,
+    completeOnboarding,
+    updateHousehold,
+    likeMeal,
+    skipMeal,
+    removeSavedMeal,
+    saveVideoMeal,
+    updateVideoRecipe,
+    markRecipeFailed,
+    saveWeeklyPlan,
+    replaceWeeklyMeal,
+    swapWeeklyDays,
+    moveWeeklyMeal,
+    removeWeeklyMeal,
+    addDynamicMeal,
+    setOptimizationObjective,
+    addPantryItems,
+    removePantryItem,
+    setUsePantryFirst,
+    toggleShoppingItem,
+    resetDiscovery,
+    loadDemoState,
+    resetApp,
+  }), [state, hydrated, completeOnboarding, updateHousehold, likeMeal, skipMeal, removeSavedMeal, saveVideoMeal, updateVideoRecipe, markRecipeFailed, saveWeeklyPlan, replaceWeeklyMeal, swapWeeklyDays, moveWeeklyMeal, removeWeeklyMeal, addDynamicMeal, setOptimizationObjective, addPantryItems, removePantryItem, setUsePantryFirst, toggleShoppingItem, resetDiscovery, loadDemoState, resetApp]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
 export function useMealApp() {
   const context = useContext(AppContext);
-  if (!context) {
-    throw new Error("useMealApp must be used inside AppProvider");
-  }
+  if (!context) throw new Error("useMealApp must be used inside AppProvider");
   return context;
 }

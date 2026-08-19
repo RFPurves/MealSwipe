@@ -50,11 +50,11 @@ export function AppShell({ children, eyebrow, title, action }: AppShellProps) {
           <span>MealSwipe</span>
         </Link>
         <div className="rail-copy">
-          <span className="eyebrow">Taste first. Plan later.</span>
-          <h2>Your week, one delicious swipe at a time.</h2>
+          <span className="eyebrow">Inspiration becomes action.</span>
+          <h2>The food you want. Your whole week, intelligently planned.</h2>
           <p>
-            Build a shortlist of meals you actually want to eat. We&apos;ll turn it
-            into a smarter week next.
+            Discover food visually, turn favourites into personalized recipes,
+            and get one week that reuses ingredients on purpose.
           </p>
         </div>
         <button className="text-button" type="button" onClick={restart}>

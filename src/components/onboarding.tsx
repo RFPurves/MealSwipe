@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -10,43 +10,18 @@ import {
   Clock3,
   Heart,
   Plus,
+  ShieldCheck,
   Sparkles,
-  X,
+  Trash2,
+  Users,
 } from "lucide-react";
 import { useMealApp } from "@/components/app-provider";
-import type {
-  Allergen,
-  DietaryPreference,
-  MealCategory,
-  Preferences,
-} from "@/types";
-import { defaultPreferences } from "@/types";
+import { householdPreferences } from "@/lib/meal-safety";
+import type { Allergen, DietaryPreference, Household, HouseholdMember, MealCategory, NutritionPreference, Preferences } from "@/types";
+import { defaultHousehold, defaultPreferences } from "@/types";
 
-const diets: { name: DietaryPreference; detail: string; symbol: string }[] = [
-  { name: "Everything", detail: "Show me the full menu", symbol: "✦" },
-  { name: "Vegetarian", detail: "No meat or fish", symbol: "◌" },
-  { name: "Vegan", detail: "Plants only", symbol: "◇" },
-  { name: "Pescatarian", detail: "Vegetarian + seafood", symbol: "≈" },
-  { name: "High protein", detail: "Protein-forward picks", symbol: "↑" },
-];
-
-const allergens: Allergen[] = [
-  "Dairy",
-  "Eggs",
-  "Gluten",
-  "Nuts",
-  "Shellfish",
-  "Soy",
-];
-
-const dislikedSuggestions = [
-  "Mushrooms",
-  "Olives",
-  "Coriander",
-  "Tofu",
-  "Avocado",
-];
-
+const diets: DietaryPreference[] = ["Everything", "Vegetarian", "Vegan", "Pescatarian", "High protein"];
+const allergens: Allergen[] = ["Dairy", "Eggs", "Gluten", "Nuts", "Shellfish", "Soy"];
 const categories: { name: MealCategory; emoji: string }[] = [
   { name: "Italian", emoji: "🍅" },
   { name: "Asian", emoji: "🥢" },
@@ -59,50 +34,44 @@ const categories: { name: MealCategory; emoji: string }[] = [
 ];
 
 function toggleItem<T extends string>(items: T[], item: T) {
-  return items.includes(item)
-    ? items.filter((value) => value !== item)
-    : [...items, item];
+  return items.includes(item) ? items.filter((value) => value !== item) : [...items, item];
+}
+
+function newMember(index: number): HouseholdMember {
+  return {
+    id: `member-${Date.now()}-${index}`,
+    name: `Person ${index + 1}`,
+    dietary: "Everything",
+    allergies: [],
+    dislikedIngredients: [],
+    nutritionPreference: "Balanced",
+  };
 }
 
 export function Onboarding() {
   const router = useRouter();
-  const { hydrated, hasOnboarded, completeOnboarding } = useMealApp();
+  const { hydrated, hasOnboarded, completeOnboarding, loadDemoState } = useMealApp();
   const [step, setStep] = useState(0);
-  const [preferences, setPreferences] =
-    useState<Preferences>(defaultPreferences);
-  const [customDislike, setCustomDislike] = useState("");
+  const [preferences, setPreferences] = useState<Preferences>(defaultPreferences);
+  const [household, setHousehold] = useState<Household>(() => ({
+    ...defaultHousehold,
+    members: defaultHousehold.members.map((member) => ({ ...member })),
+    settings: { ...defaultHousehold.settings },
+  }));
 
-  const addDislike = (value = customDislike) => {
-    const normalized = value.trim();
-    if (
-      normalized &&
-      !preferences.dislikedIngredients.some(
-        (item) => item.toLowerCase() === normalized.toLowerCase(),
-      )
-    ) {
-      setPreferences((current) => ({
-        ...current,
-        dislikedIngredients: [...current.dislikedIngredients, normalized],
-      }));
-    }
-    setCustomDislike("");
-  };
+  const memberSummary = useMemo(() => household.members.map((member) => member.name || "Unnamed").join(" + "), [household.members]);
 
-  const handleDislikeKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      addDislike();
-    }
+  const updateMember = (id: string, updates: Partial<HouseholdMember>) => {
+    setHousehold((current) => ({ ...current, members: current.members.map((member) => member.id === id ? { ...member, ...updates } : member) }));
   };
 
   const finish = () => {
-    completeOnboarding(preferences);
+    const aggregate = householdPreferences(household, preferences);
+    completeOnboarding({ ...aggregate, categories: preferences.categories }, household);
     router.push("/discover");
   };
 
-  if (!hydrated) {
-    return <main className="onboarding onboarding-loading" />;
-  }
+  if (!hydrated) return <main className="onboarding onboarding-loading" />;
 
   if (step === 0) {
     return (
@@ -110,44 +79,22 @@ export function Onboarding() {
         <div className="welcome-orb welcome-orb-one" />
         <div className="welcome-orb welcome-orb-two" />
         <section className="welcome-content">
-          <div className="welcome-logo">
-            <span className="brand-mark brand-mark-large">
-              <Sparkles size={26} />
-            </span>
-            <span>MealSwipe</span>
-          </div>
+          <div className="welcome-logo"><span className="brand-mark brand-mark-large"><Sparkles size={26} /></span><span>MealSwipe</span></div>
           <div className="welcome-visual" aria-hidden="true">
-            <div className="mini-card mini-card-back">
-              <span>20 min</span>
-            </div>
-            <div className="mini-card mini-card-front">
-              <div className="mini-card-photo" />
-              <div className="mini-card-copy">
-                <span>Miso salmon bowl</span>
-                <Heart size={16} fill="currentColor" />
-              </div>
-            </div>
+            <div className="mini-card mini-card-back"><span>One smart shop</span></div>
+            <div className="mini-card mini-card-front"><div className="mini-card-photo" /><div className="mini-card-copy"><span>Miso salmon bowl</span><Heart size={16} fill="currentColor" /></div></div>
           </div>
           <div className="welcome-copy">
-            <p className="eyebrow">Swipe. Save. Savour.</p>
-            <h1>Your weekly menu should feel this easy.</h1>
-            <p>
-              Discover craveable meals, save your favourites, and turn them into
-              a week you&apos;ll look forward to.
-            </p>
+            <p className="eyebrow">Inspiration → dinner plan</p>
+            <h1>Turn the food you want to eat into your entire week.</h1>
+            <p>Swipe real cooking videos. AI builds personalized recipes, an optimized week, and one shopping list.</p>
           </div>
-          <button className="primary-button primary-button-large" onClick={() => setStep(1)}>
-            Find my meals <ArrowRight size={20} />
-          </button>
-          {hasOnboarded ? (
-            <button className="link-button" type="button" onClick={() => router.push("/discover")}>
-              Continue where I left off
-            </button>
+          <button className="primary-button primary-button-large" onClick={() => setStep(1)}>Build my household <ArrowRight size={20} /></button>
+          {hasOnboarded ? <button className="link-button" type="button" onClick={() => router.push("/discover")}>Continue where I left off</button> : null}
+          {process.env.NODE_ENV === "development" ? (
+            <button className="demo-mode-link" type="button" onClick={() => { loadDemoState(); router.push("/week"); }}><Sparkles size={14} /> Open VC demo state</button>
           ) : null}
-          <div className="benefit-row">
-            <span><Clock3 size={16} /> Takes 60 seconds</span>
-            <span><ChefHat size={16} /> 18 curated ideas</span>
-          </div>
+          <div className="benefit-row"><span><Clock3 size={16} /> Set up in 60 seconds</span><span><ShieldCheck size={16} /> Allergies first</span></div>
         </section>
       </main>
     );
@@ -155,172 +102,80 @@ export function Onboarding() {
 
   return (
     <main className="onboarding preference-screen">
-      <section className="preference-card">
+      <section className="preference-card household-onboarding-card">
         <header className="preference-header">
           <div className="preference-topline">
-            <button
-              className="icon-button icon-button-plain"
-              type="button"
-              onClick={() => setStep((current) => Math.max(0, current - 1))}
-              aria-label="Go back"
-            >
-              <ArrowLeft size={22} />
-            </button>
-            <span>Step {step} of 3</span>
-            <span className="step-count">{Math.round((step / 3) * 100)}%</span>
+            <button className="icon-button icon-button-plain" type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} aria-label="Go back"><ArrowLeft size={22} /></button>
+            <span>Step {step} of 4</span><span className="step-count">{Math.round((step / 4) * 100)}%</span>
           </div>
-          <div className="progress-track">
-            <span style={{ width: `${(step / 3) * 100}%` }} />
-          </div>
+          <div className="progress-track"><span style={{ width: `${(step / 4) * 100}%` }} /></div>
         </header>
 
         <div className="preference-body">
           {step === 1 ? (
             <>
-              <p className="eyebrow">First things first</p>
-              <h1>How do you like to eat?</h1>
-              <p className="section-intro">Pick the option that fits you best. You can change it later.</p>
-              <div className="diet-list">
-                {diets.map((diet) => {
-                  const selected = preferences.dietary === diet.name;
-                  return (
-                    <button
-                      key={diet.name}
-                      type="button"
-                      className={`select-row${selected ? " selected" : ""}`}
-                      onClick={() =>
-                        setPreferences((current) => ({ ...current, dietary: diet.name }))
-                      }
-                    >
-                      <span className="select-symbol">{diet.symbol}</span>
-                      <span className="select-copy">
-                        <strong>{diet.name}</strong>
-                        <small>{diet.detail}</small>
-                      </span>
-                      <span className="radio-mark">{selected ? <Check size={15} /> : null}</span>
-                    </button>
-                  );
-                })}
+              <p className="eyebrow">Your table</p><h1>Who are we cooking for?</h1>
+              <p className="section-intro">Add everyone whose needs should shape the week.</p>
+              <label className="compact-field"><span>Household name</span><input value={household.name} onChange={(event) => setHousehold((current) => ({ ...current, name: event.target.value }))} /></label>
+              <div className="household-member-names">
+                {household.members.map((member, index) => (
+                  <div className="member-name-row" key={member.id}>
+                    <span><Users size={17} /></span>
+                    <input aria-label={`Member ${index + 1} name`} value={member.name} onChange={(event) => updateMember(member.id, { name: event.target.value })} />
+                    {household.members.length > 1 ? <button type="button" aria-label={`Remove ${member.name}`} onClick={() => setHousehold((current) => ({ ...current, members: current.members.filter((item) => item.id !== member.id) }))}><Trash2 size={16} /></button> : null}
+                  </div>
+                ))}
+              </div>
+              <button className="secondary-button add-member-button" type="button" onClick={() => setHousehold((current) => ({ ...current, members: [...current.members, newMember(current.members.length)] }))}><Plus size={16} /> Add person</button>
+              <div className="household-counts">
+                <label><span>Adults</span><input type="number" min="1" max="8" value={household.settings.adults} onChange={(event) => setHousehold((current) => ({ ...current, settings: { ...current.settings, adults: Number(event.target.value) } }))} /></label>
+                <label><span>Children</span><input type="number" min="0" max="8" value={household.settings.children} onChange={(event) => setHousehold((current) => ({ ...current, settings: { ...current.settings, children: Number(event.target.value) } }))} /></label>
               </div>
             </>
           ) : null}
 
           {step === 2 ? (
             <>
-              <p className="eyebrow">Make it yours</p>
-              <h1>Anything we should avoid?</h1>
-              <p className="section-intro">We&apos;ll hide meals containing your allergens or dislikes.</p>
-
-              <div className="field-group">
-                <label>Allergies</label>
-                <div className="chip-grid">
-                  {allergens.map((allergen) => {
-                    const selected = preferences.allergies.includes(allergen);
-                    return (
-                      <button
-                        type="button"
-                        key={allergen}
-                        className={`choice-chip${selected ? " selected" : ""}`}
-                        onClick={() =>
-                          setPreferences((current) => ({
-                            ...current,
-                            allergies: toggleItem(current.allergies, allergen),
-                          }))
-                        }
-                      >
-                        {selected ? <Check size={14} /> : null}{allergen}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="field-group">
-                <label htmlFor="dislike-input">Disliked ingredients</label>
-                <div className="input-with-button">
-                  <input
-                    id="dislike-input"
-                    value={customDislike}
-                    onChange={(event) => setCustomDislike(event.target.value)}
-                    onKeyDown={handleDislikeKeyDown}
-                    placeholder="e.g. aubergine"
-                  />
-                  <button type="button" onClick={() => addDislike()} aria-label="Add disliked ingredient">
-                    <Plus size={19} />
-                  </button>
-                </div>
-                <div className="suggestion-row">
-                  {dislikedSuggestions.map((item) => {
-                    const selected = preferences.dislikedIngredients.includes(item);
-                    return (
-                      <button
-                        type="button"
-                        key={item}
-                        className={`suggestion-chip${selected ? " selected" : ""}`}
-                        onClick={() =>
-                          setPreferences((current) => ({
-                            ...current,
-                            dislikedIngredients: toggleItem(
-                              current.dislikedIngredients,
-                              item,
-                            ),
-                          }))
-                        }
-                      >
-                        {item}{selected ? <X size={12} /> : <Plus size={12} />}
-                      </button>
-                    );
-                  })}
-                </div>
+              <p className="eyebrow">Safety first</p><h1>How does everyone eat?</h1>
+              <p className="section-intro">Allergies and dietary restrictions are hard rules—not suggestions.</p>
+              <div className="member-restriction-list">
+                {household.members.map((member) => (
+                  <section className="member-restriction-card" key={member.id}>
+                    <h2>{member.name || "Household member"}</h2>
+                    <label className="compact-field"><span>Diet</span><select value={member.dietary} onChange={(event) => updateMember(member.id, { dietary: event.target.value as DietaryPreference })}>{diets.map((diet) => <option key={diet}>{diet}</option>)}</select></label>
+                    <label className="compact-field"><span>Nutrition preference (optional)</span><select value={member.nutritionPreference} onChange={(event) => updateMember(member.id, { nutritionPreference: event.target.value as NutritionPreference })}>{["Balanced", "High protein", "Lower carb", "None"].map((option) => <option key={option}>{option}</option>)}</select></label>
+                    <div className="field-group"><label>Allergies</label><div className="chip-grid compact-chip-grid">{allergens.map((allergen) => <button type="button" key={allergen} className={`choice-chip${member.allergies.includes(allergen) ? " selected" : ""}`} onClick={() => updateMember(member.id, { allergies: toggleItem(member.allergies, allergen) })}>{member.allergies.includes(allergen) ? <Check size={13} /> : null}{allergen}</button>)}</div></div>
+                    <label className="compact-field"><span>Disliked ingredients</span><input placeholder="e.g. mushrooms, coriander" value={member.dislikedIngredients.join(", ")} onChange={(event) => updateMember(member.id, { dislikedIngredients: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })} /></label>
+                  </section>
+                ))}
               </div>
             </>
           ) : null}
 
           {step === 3 ? (
             <>
-              <p className="eyebrow">Last one</p>
-              <h1>What sounds good?</h1>
-              <p className="section-intro">Choose as many as you like, or leave blank to see everything.</p>
-              <div className="category-grid">
-                {categories.map((category) => {
-                  const selected = preferences.categories.includes(category.name);
-                  return (
-                    <button
-                      type="button"
-                      key={category.name}
-                      className={`category-tile${selected ? " selected" : ""}`}
-                      onClick={() =>
-                        setPreferences((current) => ({
-                          ...current,
-                          categories: toggleItem(current.categories, category.name),
-                        }))
-                      }
-                    >
-                      <span>{category.emoji}</span>
-                      <strong>{category.name}</strong>
-                      <i>{selected ? <Check size={13} /> : null}</i>
-                    </button>
-                  );
-                })}
+              <p className="eyebrow">Follow the cravings</p><h1>What looks good?</h1>
+              <p className="section-intro">Choose a few interests. Discover will learn from every swipe.</p>
+              <div className="category-grid">{categories.map((category) => { const selected = preferences.categories.includes(category.name); return <button key={category.name} type="button" className={`category-card${selected ? " selected" : ""}`} onClick={() => setPreferences((current) => ({ ...current, categories: toggleItem(current.categories, category.name) }))}><span>{category.emoji}</span><strong>{category.name}</strong>{selected ? <Check size={15} /> : null}</button>; })}</div>
+            </>
+          ) : null}
+
+          {step === 4 ? (
+            <>
+              <p className="eyebrow">Make the week realistic</p><h1>Your cooking rhythm</h1>
+              <p className="section-intro">We&apos;ll optimize for {memberSummary} without making weeknights harder.</p>
+              <div className="constraint-grid">
+                <label><span>Dinners per week</span><input type="range" min="3" max="7" value={household.settings.dinnersPerWeek} onChange={(event) => setHousehold((current) => ({ ...current, settings: { ...current.settings, dinnersPerWeek: Number(event.target.value) } }))} /><strong>{household.settings.dinnersPerWeek}</strong></label>
+                <label><span>Maximum cooking time</span><input type="range" min="15" max="60" step="5" value={household.settings.maximumCookingTime} onChange={(event) => setHousehold((current) => ({ ...current, settings: { ...current.settings, maximumCookingTime: Number(event.target.value) } }))} /><strong>{household.settings.maximumCookingTime} min</strong></label>
+                <label className="compact-field"><span>Weekly food budget (optional)</span><input type="number" min="0" placeholder="€" value={household.settings.weeklyBudget ?? ""} onChange={(event) => setHousehold((current) => ({ ...current, settings: { ...current.settings, weeklyBudget: event.target.value ? Number(event.target.value) : undefined } }))} /></label>
               </div>
+              <div className="onboarding-value-callout"><ChefHat size={22} /><div><strong>Swipe food you want to eat.</strong><span>We&apos;ll plan the week around it.</span></div></div>
             </>
           ) : null}
         </div>
 
         <footer className="preference-footer">
-          <button
-            className="primary-button primary-button-large"
-            type="button"
-            onClick={step === 3 ? finish : () => setStep((current) => current + 1)}
-          >
-            {step === 3 ? "Start swiping" : "Continue"}
-            {step === 3 ? <Sparkles size={19} /> : <ArrowRight size={19} />}
-          </button>
-          {step === 2 ? (
-            <button className="link-button" type="button" onClick={() => setStep(3)}>
-              Nothing to avoid
-            </button>
-          ) : null}
+          {step < 4 ? <button className="primary-button" type="button" onClick={() => setStep((current) => current + 1)}>Continue <ArrowRight size={18} /></button> : <button className="primary-button" type="button" onClick={finish}><Sparkles size={18} /> Start swiping</button>}
         </footer>
       </section>
     </main>
