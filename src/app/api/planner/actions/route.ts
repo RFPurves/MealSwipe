@@ -116,7 +116,6 @@ export async function POST(request: Request) {
         type: errorPayload?.error?.type,
         code: errorPayload?.error?.code,
         param: errorPayload?.error?.param,
-        message: errorPayload?.error?.message,
       });
       throw new Error(`Planner request failed with ${response.status}`);
     }

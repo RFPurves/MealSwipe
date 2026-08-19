@@ -44,7 +44,6 @@ export async function POST(request: Request) {
         type: errorPayload?.error?.type,
         code: errorPayload?.error?.code,
         param: errorPayload?.error?.param,
-        message: errorPayload?.error?.message,
       });
       throw new Error(`Image analysis failed with ${response.status}`);
     }

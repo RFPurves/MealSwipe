@@ -218,7 +218,6 @@ export async function POST(request: Request) {
         type: errorPayload?.error?.type,
         code: errorPayload?.error?.code,
         param: errorPayload?.error?.param,
-        message: errorPayload?.error?.message,
       });
       if (response.status === 429) {
         return Response.json({
