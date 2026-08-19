@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(18000),
       body: JSON.stringify({
-        model: process.env.OPENAI_RECIPE_MODEL ?? "gpt-4o-mini",
+        model: process.env.OPENAI_RECIPE_MODEL?.trim() || "gpt-4o-mini",
         input: [{ role: "user", content: [{ type: "input_text", text: "List only likely edible pantry or fridge ingredients visible in this image. Be conservative. Do not infer hidden items. The user will confirm everything." }, { type: "input_image", image_url: body.imageDataUrl, detail: "low" }] }],
         text: { format: { type: "json_schema", name: "pantry_items", strict: true, schema: pantrySchema } },
       }),

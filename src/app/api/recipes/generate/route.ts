@@ -188,7 +188,7 @@ export async function POST(request: Request) {
       },
       signal: AbortSignal.timeout(20000),
       body: JSON.stringify({
-        model: process.env.OPENAI_RECIPE_MODEL ?? "gpt-4o-mini",
+        model: process.env.OPENAI_RECIPE_MODEL?.trim() || "gpt-4o-mini",
         input: [
           {
             role: "developer",

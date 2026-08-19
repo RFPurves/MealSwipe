@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(15000),
       body: JSON.stringify({
-        model: process.env.OPENAI_RECIPE_MODEL ?? "gpt-4o-mini",
+        model: process.env.OPENAI_RECIPE_MODEL?.trim() || "gpt-4o-mini",
         input: [
           { role: "developer", content: "Translate the user's request into only the allowed meal-planner actions. Never invent days or meals. Allergies and dietary rules are immutable hard constraints. Use clarification with no actions whenever the request is ambiguous. Meaningful changes require confirmation." },
           { role: "user", content: JSON.stringify({ instruction: body.instruction, currentWeek: body.plan, household: body.household }) },
