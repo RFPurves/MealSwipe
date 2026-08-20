@@ -104,6 +104,7 @@ export interface Preferences {
 export interface HouseholdMember {
   id: string;
   name: string;
+  username?: string;
   dietary: DietaryPreference;
   allergies: Allergen[];
   dislikedIngredients: string[];
@@ -119,6 +120,7 @@ export interface HouseholdSettings {
 }
 
 export interface Household {
+  id?: string;
   name: string;
   members: HouseholdMember[];
   settings: HouseholdSettings;

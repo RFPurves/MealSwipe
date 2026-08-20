@@ -13,16 +13,26 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
+import { useState } from "react";
 import { useMealApp } from "@/components/app-provider";
 import { mealById } from "@/data/meals";
 
 export function SavedMeals() {
-  const { savedIds, dynamicMeals, removeSavedMeal } = useMealApp();
+  const { savedIds, dynamicMeals, removeSavedMeal, account, refreshAccount } = useMealApp();
+  const [visibilityNote, setVisibilityNote] = useState<string | null>(null);
   const dynamicById = new Map(dynamicMeals.map((meal) => [meal.id, meal]));
   const savedMeals = savedIds.flatMap((id) => {
     const meal = dynamicById.get(id) ?? mealById.get(id);
     return meal ? [meal] : [];
   });
+
+  const updateVisibility = async (meal: (typeof savedMeals)[number], visibility: "PRIVATE" | "HOUSEHOLD" | "PUBLIC") => {
+    setVisibilityNote(null);
+    const response = await fetch("/api/saved-recipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ meal, visibility }) });
+    const data = await response.json() as { message?: string };
+    setVisibilityNote(response.ok ? `${meal.title} is now ${visibility.toLowerCase()}.` : data.message ?? "Visibility could not be changed.");
+    if (response.ok) await refreshAccount();
+  };
 
   if (savedMeals.length === 0) {
     return (
@@ -40,6 +50,7 @@ export function SavedMeals() {
       <p className="saved-intro">
         Your shortlist is taking shape. Video recipes keep preparing while you browse.
       </p>
+      {visibilityNote ? <p className="saved-visibility-note" role="status">{visibilityNote}</p> : null}
       <div className="saved-grid">
         {savedMeals.map((meal, index) => (
           <article className="saved-card" key={meal.id}>
@@ -91,6 +102,7 @@ export function SavedMeals() {
                   View recipe <ArrowRight size={14} />
                 </Link>
               ) : null}
+              {account ? <label className="recipe-visibility">Visible to<select value={account.recipeVisibility[meal.id] ?? "PRIVATE"} onChange={(event) => void updateVisibility(meal, event.target.value as "PRIVATE" | "HOUSEHOLD" | "PUBLIC")}><option value="PRIVATE">Only me</option><option value="HOUSEHOLD" disabled={!account.household}>My household</option><option value="PUBLIC">Public profile</option></select></label> : null}
             </div>
           </article>
         ))}

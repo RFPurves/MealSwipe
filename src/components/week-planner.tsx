@@ -138,10 +138,20 @@ export function WeekPlanner() {
     setIsGenerating(true);
     if (generationTimer.current !== undefined) window.clearTimeout(generationTimer.current);
     generationTimer.current = window.setTimeout(() => {
-      const mealIds = generateWeeklyPlan(savedIds, preferences, planRevision + 1, dynamicMeals, { household, objective, pantryItems, usePantryFirst });
-      app.saveWeeklyPlan(mealIds, summary);
-      setIsGenerating(false);
-      generationTimer.current = undefined;
+      void (async () => {
+        let mealIds: (string | null)[] | null = null;
+        if (app.account?.household?.id && !app.demoMode) {
+          try {
+            const response = await fetch("/api/households/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ objective, pantryItems, usePantryFirst }) });
+            const data = await response.json() as { planIds?: (string | null)[] };
+            if (response.ok && data.planIds) mealIds = data.planIds;
+          } catch { /* Fall back to the same deterministic on-device planner. */ }
+        }
+        mealIds ??= generateWeeklyPlan(savedIds, preferences, planRevision + 1, dynamicMeals, { household, householdLikes: app.householdSignals, objective, pantryItems, usePantryFirst });
+        app.saveWeeklyPlan(mealIds, summary);
+        setIsGenerating(false);
+        generationTimer.current = undefined;
+      })();
     }, 420);
   };
 
@@ -149,7 +159,7 @@ export function WeekPlanner() {
   const replaceDay = (index: number, constraint?: PlannerAction["constraint"], summary?: string) => {
     if (replacingDay !== null || planMeals.length === 0) return false;
     setReplacingDay(index);
-    const replacement = findReplacementMeal(replacementPool(), index, savedIds, preferences, planRevision + 1, dynamicMeals, { household, objective: optimizationObjective, pantryItems, usePantryFirst, constraint });
+    const replacement = findReplacementMeal(replacementPool(), index, savedIds, preferences, planRevision + 1, dynamicMeals, { household, householdLikes: app.householdSignals, objective: optimizationObjective, pantryItems, usePantryFirst, constraint });
     if (replacement) app.replaceWeeklyMeal(index, replacement.id, summary ?? `${WEEKDAYS[index]} replaced with ${replacement.title}`);
     window.setTimeout(() => setReplacingDay(null), 260);
     return Boolean(replacement);
@@ -299,7 +309,7 @@ export function WeekPlanner() {
               <article className={`day-meal-card${replacingDay === index ? " is-replacing" : ""}`}>
                 <div className="day-meal-image"><Image src={meal.image} alt={meal.title} fill loading={index === 0 ? "eager" : "lazy"} sizes="(max-width: 760px) 116px, 132px" /><span>{index + 1}</span></div>
                 <div className="day-meal-content">
-                  <div className="day-label-row"><p>{WEEKDAYS[index]}</p>{savedSet.has(meal.id) ? <span><Heart size={10} fill="currentColor" /> Liked</span> : <span className="smart-pick"><Sparkles size={10} /> Smart pick</span>}</div>
+                  <div className="day-label-row"><p>{WEEKDAYS[index]}</p>{(app.householdSignals[meal.id]?.length ?? 0) >= 2 ? <span><Heart size={10} fill="currentColor" /> Liked by both of you</span> : app.householdSignals[meal.id]?.length ? <span><Heart size={10} fill="currentColor" /> @{app.householdSignals[meal.id][0]} liked this</span> : savedSet.has(meal.id) ? <span><Heart size={10} fill="currentColor" /> Liked</span> : <span className="smart-pick"><Sparkles size={10} /> Smart pick</span>}</div>
                   <h3>{meal.title}</h3><p className="day-time"><Clock3 size={13} /> {meal.timeMinutes} min · {meal.proteinGrams}g protein</p>
                   <div className="day-ingredients">{meal.ingredients.slice(0, 3).map((ingredient) => <span key={ingredient.name}>{ingredient.name}</span>)}</div>
                   <div className="day-card-bottom"><div className="dietary-tags">{meal.dietary.slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="day-action-buttons"><button type="button" onClick={() => replaceDay(index)}><Repeat2 size={14} /> Replace</button><button type="button" onClick={() => { setEditorDay(editorDay === index ? null : index); setEditorMode(null); }}><ChevronDown size={14} /> Edit</button></div></div>

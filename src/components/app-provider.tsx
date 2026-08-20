@@ -6,9 +6,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { useSession } from "next-auth/react";
 import type {
   Household,
   Meal,
@@ -18,6 +20,7 @@ import type {
   YouTubeMealCandidate,
 } from "@/types";
 import { defaultHousehold, defaultPreferences } from "@/types";
+import type { AccountBootstrap } from "@/types/account";
 
 const STORAGE_KEY = "meal-swipe-state-v4";
 const LEGACY_STORAGE_KEYS = ["meal-swipe-state-v3", "meal-swipe-state-v2", "meal-swipe-state-v1"];
@@ -41,6 +44,11 @@ interface StoredState {
 
 interface AppContextValue extends StoredState {
   hydrated: boolean;
+  account: AccountBootstrap | null;
+  accountLoading: boolean;
+  accountError: boolean;
+  householdSignals: Record<string, string[]>;
+  refreshAccount: () => Promise<void>;
   completeOnboarding: (preferences: Preferences, household?: Household) => void;
   updateHousehold: (household: Household) => void;
   likeMeal: (id: string) => void;
@@ -218,8 +226,53 @@ function normalizeStored(parsed: Partial<StoredState>): StoredState {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { status } = useSession();
   const [state, setState] = useState<StoredState>(initialState);
   const [hydrated, setHydrated] = useState(false);
+  const [account, setAccount] = useState<AccountBootstrap | null>(null);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountError, setAccountError] = useState(false);
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  const refreshAccount = useCallback(async () => {
+    if (status !== "authenticated") return;
+    setAccountLoading(true);
+    setAccountError(false);
+    try {
+      const response = await fetch("/api/account/bootstrap", { cache: "no-store" });
+      if (!response.ok) throw new Error("Account unavailable");
+      const data = await response.json() as { account: AccountBootstrap };
+      setAccount(data.account);
+      setState((current) => {
+        if (current.demoMode) return current;
+        const dynamicById = new Map(current.dynamicMeals.map((meal) => [meal.id, meal]));
+        data.account.dynamicMeals.forEach((meal) => dynamicById.set(meal.id, meal));
+        const hasDemoArtifacts = current.pantryItems.some((item) => item.source === "demo")
+          || current.dynamicMeals.some((meal) => meal.id.startsWith("youtube:demo-"))
+          || current.lastPlanChange === "VC demo week loaded";
+        return {
+          ...current,
+          preferences: data.account.preferences,
+          household: data.account.household ?? current.household,
+          hasOnboarded: current.hasOnboarded || Boolean(data.account.user.username),
+          savedIds: data.account.savedIds,
+          skippedIds: data.account.skippedIds,
+          dynamicMeals: hasDemoArtifacts ? data.account.dynamicMeals : [...dynamicById.values()],
+          weeklyPlanIds: data.account.latestPlanIds,
+          ...(hasDemoArtifacts ? { pantryItems: [], usePantryFirst: false, checkedShoppingItems: [], lastPlanChange: undefined } : {}),
+        };
+      });
+    } catch {
+      setAccount(null);
+      setAccountError(true);
+    } finally {
+      setAccountLoading(false);
+    }
+  }, [status]);
 
   useEffect(() => {
     const hydrateTimer = window.setTimeout(() => {
@@ -229,7 +282,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } else {
           const stored = window.localStorage.getItem(STORAGE_KEY)
             ?? LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
-          if (stored) setState(normalizeStored(JSON.parse(stored) as Partial<StoredState>));
+          if (stored) setState({ ...normalizeStored(JSON.parse(stored) as Partial<StoredState>), demoMode: false });
         }
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
@@ -243,6 +296,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (hydrated) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [hydrated, state]);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      if (hydrated && status === "authenticated" && !state.demoMode) void refreshAccount();
+      if (status === "unauthenticated") setAccount(null);
+    });
+    return () => { active = false; };
+  }, [hydrated, refreshAccount, state.demoMode, status]);
+
+  const sendAccountMutation = useCallback(async (url: string, init: RequestInit) => {
+    if (status !== "authenticated" || state.demoMode) return;
+    try {
+      await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init.headers ?? {}) } });
+    } catch {
+      // Local state remains usable while connectivity recovers; the account screen exposes server errors for explicit actions.
+    }
+  }, [state.demoMode, status]);
 
   const completeOnboarding = useCallback((preferences: Preferences, household?: Household) => {
     const nextHousehold = household ?? {
@@ -263,12 +335,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       checkedShoppingItems: [],
       demoMode: false,
     }));
-  }, []);
+    void sendAccountMutation("/api/account/profile", { method: "PATCH", body: JSON.stringify({ preferences }) });
+  }, [sendAccountMutation]);
 
   const updateHousehold = useCallback((household: Household) => setState((current) => ({ ...current, household, weeklyPlanIds: [], checkedShoppingItems: [] })), []);
-  const likeMeal = useCallback((id: string) => setState((current) => ({ ...current, savedIds: current.savedIds.includes(id) ? current.savedIds : [...current.savedIds, id], skippedIds: current.skippedIds.filter((mealId) => mealId !== id) })), []);
-  const skipMeal = useCallback((id: string) => setState((current) => ({ ...current, skippedIds: current.skippedIds.includes(id) ? current.skippedIds : [...current.skippedIds, id] })), []);
-  const removeSavedMeal = useCallback((id: string) => setState((current) => ({ ...current, savedIds: current.savedIds.filter((mealId) => mealId !== id) })), []);
+  const likeMeal = useCallback((id: string) => {
+    setState((current) => ({ ...current, savedIds: current.savedIds.includes(id) ? current.savedIds : [...current.savedIds, id], skippedIds: current.skippedIds.filter((mealId) => mealId !== id) }));
+    void sendAccountMutation("/api/swipes", { method: "POST", body: JSON.stringify({ recipeIdentifier: id, action: "LIKED" }) });
+  }, [sendAccountMutation]);
+  const skipMeal = useCallback((id: string) => {
+    setState((current) => ({ ...current, skippedIds: current.skippedIds.includes(id) ? current.skippedIds : [...current.skippedIds, id] }));
+    void sendAccountMutation("/api/swipes", { method: "POST", body: JSON.stringify({ recipeIdentifier: id, action: "SKIPPED" }) });
+  }, [sendAccountMutation]);
+  const removeSavedMeal = useCallback((id: string) => {
+    setState((current) => ({ ...current, savedIds: current.savedIds.filter((mealId) => mealId !== id) }));
+    void sendAccountMutation(`/api/saved-recipes?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  }, [sendAccountMutation]);
 
   const saveVideoMeal = useCallback((candidate: YouTubeMealCandidate) => {
     const id = `youtube:${candidate.videoId}`;
@@ -304,24 +386,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return id;
   }, []);
 
-  const updateVideoRecipe = useCallback((id: string, meal: Meal) => setState((current) => ({ ...current, dynamicMeals: current.dynamicMeals.map((existing) => existing.id === id ? { ...meal, id } : existing) })), []);
+  const updateVideoRecipe = useCallback((id: string, meal: Meal) => {
+    const savedMeal = { ...meal, id };
+    setState((current) => ({ ...current, dynamicMeals: current.dynamicMeals.map((existing) => existing.id === id ? savedMeal : existing) }));
+    void sendAccountMutation("/api/saved-recipes", { method: "POST", body: JSON.stringify({ meal: savedMeal, visibility: "PRIVATE" }) });
+  }, [sendAccountMutation]);
   const markRecipeFailed = useCallback((id: string) => setState((current) => ({ ...current, dynamicMeals: current.dynamicMeals.map((meal) => meal.id === id ? { ...meal, recipeStatus: "failed", safetyStatus: "review-needed", safetyNotes: ["We could not verify this recipe. Review the source before cooking."] } : meal) })), []);
 
-  const saveWeeklyPlan = useCallback((mealIds: (string | null)[], summary = "Weekly plan updated") => setState((current) => ({ ...current, weeklyPlanIds: mealIds, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary })), []);
-  const replaceWeeklyMeal = useCallback((dayIndex: number, mealId: string, summary = "Meal replaced") => setState((current) => ({ ...current, weeklyPlanIds: Array.from({ length: 7 }, (_, index) => index === dayIndex ? mealId : current.weeklyPlanIds[index] ?? null), planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary })), []);
-  const swapWeeklyDays = useCallback((firstIndex: number, secondIndex: number, summary = "Days swapped") => setState((current) => {
-    const next = Array.from({ length: 7 }, (_, index) => current.weeklyPlanIds[index] ?? null);
+  const persistWeeklyPlan = useCallback((planIds: (string | null)[], summary: string) => {
+    void sendAccountMutation("/api/households/plan", { method: "PATCH", body: JSON.stringify({ planIds, summary, objective: stateRef.current.optimizationObjective }) });
+  }, [sendAccountMutation]);
+  const saveWeeklyPlan = useCallback((mealIds: (string | null)[], summary = "Weekly plan updated") => {
+    setState((current) => ({ ...current, weeklyPlanIds: mealIds, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary }));
+    persistWeeklyPlan(mealIds, summary);
+  }, [persistWeeklyPlan]);
+  const replaceWeeklyMeal = useCallback((dayIndex: number, mealId: string, summary = "Meal replaced") => {
+    const next = Array.from({ length: 7 }, (_, index) => index === dayIndex ? mealId : stateRef.current.weeklyPlanIds[index] ?? null);
+    stateRef.current = { ...stateRef.current, weeklyPlanIds: next };
+    setState((current) => ({ ...current, weeklyPlanIds: next, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary }));
+    persistWeeklyPlan(next, summary);
+  }, [persistWeeklyPlan]);
+  const swapWeeklyDays = useCallback((firstIndex: number, secondIndex: number, summary = "Days swapped") => {
+    const next = Array.from({ length: 7 }, (_, index) => stateRef.current.weeklyPlanIds[index] ?? null);
     [next[firstIndex], next[secondIndex]] = [next[secondIndex], next[firstIndex]];
-    return { ...current, weeklyPlanIds: next, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary };
-  }), []);
-  const moveWeeklyMeal = useCallback((fromIndex: number, toIndex: number, summary = "Meal moved") => setState((current) => {
-    const next = Array.from({ length: 7 }, (_, index) => current.weeklyPlanIds[index] ?? null);
+    stateRef.current = { ...stateRef.current, weeklyPlanIds: next };
+    setState((current) => ({ ...current, weeklyPlanIds: next, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary }));
+    persistWeeklyPlan(next, summary);
+  }, [persistWeeklyPlan]);
+  const moveWeeklyMeal = useCallback((fromIndex: number, toIndex: number, summary = "Meal moved") => {
+    const next = Array.from({ length: 7 }, (_, index) => stateRef.current.weeklyPlanIds[index] ?? null);
     const moved = next[fromIndex];
     next[fromIndex] = next[toIndex];
     next[toIndex] = moved;
-    return { ...current, weeklyPlanIds: next, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary };
-  }), []);
-  const removeWeeklyMeal = useCallback((dayIndex: number, summary = "Meal removed") => setState((current) => ({ ...current, weeklyPlanIds: Array.from({ length: 7 }, (_, index) => index === dayIndex ? null : current.weeklyPlanIds[index] ?? null), planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary })), []);
+    stateRef.current = { ...stateRef.current, weeklyPlanIds: next };
+    setState((current) => ({ ...current, weeklyPlanIds: next, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary }));
+    persistWeeklyPlan(next, summary);
+  }, [persistWeeklyPlan]);
+  const removeWeeklyMeal = useCallback((dayIndex: number, summary = "Meal removed") => {
+    const next = Array.from({ length: 7 }, (_, index) => index === dayIndex ? null : stateRef.current.weeklyPlanIds[index] ?? null);
+    stateRef.current = { ...stateRef.current, weeklyPlanIds: next };
+    setState((current) => ({ ...current, weeklyPlanIds: next, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary }));
+    persistWeeklyPlan(next, summary);
+  }, [persistWeeklyPlan]);
   const addDynamicMeal = useCallback((meal: Meal) => setState((current) => ({ ...current, dynamicMeals: [...current.dynamicMeals.filter((item) => item.id !== meal.id), meal] })), []);
   const setOptimizationObjective = useCallback((optimizationObjective: OptimizationObjective) => setState((current) => ({ ...current, optimizationObjective })), []);
   const addPantryItems = useCallback((items: Omit<PantryItem, "id">[]) => setState((current) => {
@@ -339,6 +445,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppContextValue>(() => ({
     ...state,
     hydrated,
+    account,
+    accountLoading,
+    accountError,
+    householdSignals: account?.householdSignals ?? {},
+    refreshAccount,
     completeOnboarding,
     updateHousehold,
     likeMeal,
@@ -361,7 +472,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     resetDiscovery,
     loadDemoState,
     resetApp,
-  }), [state, hydrated, completeOnboarding, updateHousehold, likeMeal, skipMeal, removeSavedMeal, saveVideoMeal, updateVideoRecipe, markRecipeFailed, saveWeeklyPlan, replaceWeeklyMeal, swapWeeklyDays, moveWeeklyMeal, removeWeeklyMeal, addDynamicMeal, setOptimizationObjective, addPantryItems, removePantryItem, setUsePantryFirst, toggleShoppingItem, resetDiscovery, loadDemoState, resetApp]);
+  }), [state, hydrated, account, accountLoading, accountError, refreshAccount, completeOnboarding, updateHousehold, likeMeal, skipMeal, removeSavedMeal, saveVideoMeal, updateVideoRecipe, markRecipeFailed, saveWeeklyPlan, replaceWeeklyMeal, swapWeeklyDays, moveWeeklyMeal, removeWeeklyMeal, addDynamicMeal, setOptimizationObjective, addPantryItems, removePantryItem, setUsePantryFirst, toggleShoppingItem, resetDiscovery, loadDemoState, resetApp]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

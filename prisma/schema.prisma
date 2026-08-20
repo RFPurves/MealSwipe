@@ -1,0 +1,193 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum HouseholdRole {
+  OWNER
+  MEMBER
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum SwipeAction {
+  LIKED
+  SKIPPED
+  SAVED
+}
+
+enum RecipeVisibility {
+  PRIVATE
+  HOUSEHOLD
+  PUBLIC
+}
+
+model User {
+  id               String                @id @default(cuid())
+  email            String?               @unique
+  emailVerified    DateTime?
+  name             String?
+  username         String?               @unique
+  image            String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  accounts         Account[]
+  sessions         Session[]
+  preference       UserPreference?
+  membership       HouseholdMembership?
+  householdsCreated Household[]          @relation("HouseholdCreator")
+  invitesReceived  HouseholdInvite[]     @relation("InvitedUser")
+  invitesSent      HouseholdInvite[]     @relation("InvitingUser")
+  swipes           SwipeEvent[]
+  savedRecipes     SavedRecipe[]
+  weeklyPlans      WeeklyPlan[]           @relation("PlanGenerator")
+
+  @@index([username])
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?  @db.Text
+  access_token      String?  @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?  @db.Text
+  session_state     String?
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+model UserPreference {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  dietaryPreference     String   @default("Everything")
+  allergies             String[] @default([])
+  dislikedIngredients   String[] @default([])
+  nutritionPreference   String   @default("Balanced")
+  cookingCategories     String[] @default([])
+  maximumCookingTime    Int      @default(45)
+  strictDislikes        Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Household {
+  id                 String                  @id @default(cuid())
+  name               String
+  createdById        String
+  adults             Int                     @default(2)
+  children           Int                     @default(0)
+  dinnersPerWeek     Int                     @default(7)
+  maximumCookingTime Int                     @default(45)
+  weeklyBudget       Int?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  createdBy          User                    @relation("HouseholdCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  memberships        HouseholdMembership[]
+  invites            HouseholdInvite[]
+  weeklyPlans        WeeklyPlan[]
+
+  @@index([createdById])
+}
+
+model HouseholdMembership {
+  id          String        @id @default(cuid())
+  userId      String        @unique
+  householdId String
+  role        HouseholdRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household   Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, householdId])
+  @@index([householdId])
+}
+
+model HouseholdInvite {
+  id              String       @id @default(cuid())
+  householdId     String
+  invitedUserId   String
+  invitedByUserId String
+  status          InviteStatus @default(PENDING)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  household       Household    @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  invitedUser     User         @relation("InvitedUser", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedByUser   User         @relation("InvitingUser", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([invitedUserId, status])
+  @@index([householdId, status])
+}
+
+model SwipeEvent {
+  id               String      @id @default(cuid())
+  userId           String
+  recipeIdentifier String
+  action           SwipeAction
+  mealSnapshot     Json?
+  createdAt        DateTime    @default(now())
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([recipeIdentifier, action])
+}
+
+model SavedRecipe {
+  id               String           @id @default(cuid())
+  userId           String
+  recipeIdentifier String
+  recipe           Json
+  provenance       Json?
+  visibility       RecipeVisibility @default(PRIVATE)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipeIdentifier])
+  @@index([userId, visibility])
+}
+
+model WeeklyPlan {
+  id              String    @id @default(cuid())
+  householdId     String
+  generatedById   String
+  weekStart       DateTime
+  weekEnd         DateTime
+  selectedRecipes Json
+  plannerSettings Json
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  household       Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  generatedBy     User      @relation("PlanGenerator", fields: [generatedById], references: [id], onDelete: Restrict)
+
+  @@index([householdId, weekStart])
+}

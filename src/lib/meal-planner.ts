@@ -44,8 +44,9 @@ function heuristicCost(meal: Meal) {
   return costly + meal.ingredients.length * 0.35;
 }
 
-interface PlannerOptions {
+export interface PlannerOptions {
   household?: Household;
+  householdLikes?: Record<string, string[]>;
   objective?: OptimizationObjective;
   pantryItems?: PantryItem[];
   usePantryFirst?: boolean;
@@ -88,6 +89,9 @@ function scoreCandidate({
   const nutritionPreferences = options.household?.members.map((member) => member.nutritionPreference) ?? [];
 
   let score = 0;
+  const householdLikeCount = new Set(options.householdLikes?.[meal.id] ?? []).size;
+  if (householdLikeCount >= 2 && timesSelected === 0) score += 260;
+  else if (householdLikeCount === 1 && timesSelected === 0) score += 150;
   if (savedIds.has(meal.id) && timesSelected === 0) score += 125;
   if (meal.sourceType === "youtube" && savedIds.has(meal.id)) score += 34;
   if (timesSelected === 0) score += 62;

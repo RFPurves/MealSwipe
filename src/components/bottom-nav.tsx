@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bookmark, CalendarDays, Flame } from "lucide-react";
+import { Bookmark, CalendarDays, Flame, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useMealApp } from "@/components/app-provider";
 
@@ -9,6 +9,7 @@ const navItems = [
   { href: "/discover", label: "Discover", icon: Flame },
   { href: "/saved", label: "Saved", icon: Bookmark },
   { href: "/week", label: "My Week", icon: CalendarDays },
+  { href: "/account", label: "Household", icon: Users },
 ];
 
 export function BottomNav() {
@@ -18,7 +19,7 @@ export function BottomNav() {
   return (
     <nav className="bottom-nav" aria-label="Main navigation">
       {navItems.map(({ href, label, icon: Icon }) => {
-        const active = pathname === href;
+        const active = pathname === href || (href === "/account" && pathname.startsWith("/profile/"));
         return (
           <Link
             key={href}

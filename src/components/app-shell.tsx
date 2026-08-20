@@ -2,7 +2,8 @@
 
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { RotateCcw, Sparkles } from "lucide-react";
+import { RotateCcw, Sparkles, UserRound } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useMealApp } from "@/components/app-provider";
 import { BottomNav } from "@/components/bottom-nav";
@@ -16,7 +17,8 @@ interface AppShellProps {
 
 export function AppShell({ children, eyebrow, title, action }: AppShellProps) {
   const router = useRouter();
-  const { hydrated, hasOnboarded, resetApp } = useMealApp();
+  const { status } = useSession();
+  const { hydrated, hasOnboarded, resetApp, account } = useMealApp();
 
   useEffect(() => {
     if (hydrated && !hasOnboarded) {
@@ -68,7 +70,13 @@ export function AppShell({ children, eyebrow, title, action }: AppShellProps) {
             {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
             <h1>{title}</h1>
           </div>
-          {action}
+          <div className="header-actions">
+            {action}
+            <Link className="header-account-control" href={status === "authenticated" ? "/account" : "/auth/signin"} aria-label={status === "authenticated" ? "Open household account" : "Sign in"}>
+              <span>{account?.user.name ? account.user.name.slice(0, 1).toUpperCase() : <UserRound size={17} />}</span>
+              <b>{status === "authenticated" ? account?.user.username ? `@${account.user.username}` : "Account" : "Sign in"}</b>
+            </Link>
+          </div>
         </header>
         <div className="app-content">{children}</div>
         <BottomNav />
