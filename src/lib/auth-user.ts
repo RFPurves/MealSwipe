@@ -16,6 +16,13 @@ export async function requireAuthUser() {
   return user;
 }
 
+export async function requireHouseholdMembership() {
+  const user = await requireAuthUser();
+  const membership = await prisma.householdMembership.findUnique({ where: { userId: user.id } });
+  if (!membership) throw new ApiError(403, "You do not belong to a household.");
+  return { user, membership };
+}
+
 export function apiFailure(error: unknown) {
   if (error instanceof ApiError) {
     return Response.json({ message: error.message }, { status: error.status });

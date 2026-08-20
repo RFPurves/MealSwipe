@@ -1,5 +1,6 @@
 import { meals } from "@/data/meals";
 import { mealIsSafe, mealIsSafeForHousehold, mealMatchesCategories } from "@/lib/meal-safety";
+import { canSubtractPantryQuantity, normalizePantryName, normalizePantryUnit, pantryMatch } from "@/lib/pantry";
 import type {
   Household,
   Meal,
@@ -27,7 +28,7 @@ const PANTRY_TERMS = ["miso", "soy sauce", "harissa", "chickpeas", "beans", "coc
 const SIDE_TERMS = ["potato", "rice", "orzo", "couscous", "noodle", "pasta", "salad", "beans", "chickpeas", "vegetable", "spinach"];
 
 export function ingredientKey(name: string) {
-  return name.trim().toLowerCase().replace(/s$/, "");
+  return normalizePantryName(name);
 }
 
 function stableVariation(value: string) {
@@ -82,9 +83,8 @@ function scoreCandidate({
 }) {
   const timesSelected = selectedMeals.filter((selected) => selected.id === meal.id).length;
   const selectedCategories = new Set(selectedMeals.map((selected) => selected.category));
-  const pantry = new Set((options.pantryItems ?? []).filter((item) => item.confirmed).map((item) => ingredientKey(item.name)));
   const overlapCount = meal.ingredients.filter((ingredient) => ingredientUse.has(ingredientKey(ingredient.name))).length;
-  const pantryCount = meal.ingredients.filter((ingredient) => pantry.has(ingredientKey(ingredient.name))).length;
+  const pantryCount = meal.ingredients.filter((ingredient) => (options.pantryItems ?? []).some((item) => item.confirmed && pantryMatch(item, ingredient.name))).length;
   const objective = options.objective ?? "balanced";
   const nutritionPreferences = options.household?.members.map((member) => member.nutritionPreference) ?? [];
 
@@ -229,7 +229,7 @@ function shoppingCategoryFor(name: string): ShoppingCategory {
 }
 
 function normalizedUnit(unit: string) {
-  return unit === "pcs" ? "pc" : unit;
+  return normalizePantryUnit(unit);
 }
 
 export function buildShoppingList(
@@ -237,7 +237,6 @@ export function buildShoppingList(
   pantryItems: PantryItem[] = [],
   days: Weekday[] = WEEKDAYS,
 ): ShoppingItem[] {
-  const pantry = new Set(pantryItems.filter((item) => item.confirmed).map((item) => ingredientKey(item.name)));
   const combined = new Map<string, ShoppingItem & { units: Set<string>; amountTotal: number }>();
   planMeals.forEach((meal, mealIndex) => meal.ingredients.forEach((ingredient) => {
     const key = ingredientKey(ingredient.name);
@@ -257,15 +256,28 @@ export function buildShoppingList(
       units: new Set([unit]),
       amountTotal: ingredient.amount,
       usedIn: [days[mealIndex]],
-      inPantry: pantry.has(key),
+      inPantry: false,
     });
   }));
   return [...combined.values()]
-    .map(({ units, amountTotal, ...item }) => ({
-      ...item,
-      amount: units.size === 1 ? amountTotal : undefined,
-      unit: units.size === 1 ? [...units][0] : undefined,
-    }))
+    .map(({ units, amountTotal, ...item }) => {
+      const unit = units.size === 1 ? [...units][0] : undefined;
+      const matching = pantryItems.filter((pantryItem) => pantryItem.confirmed && pantryMatch(pantryItem, item.name));
+      const unquantifiedCoverage = matching.some((pantryItem) =>
+        (pantryItem.quantity === undefined || pantryItem.quantity === null) && !normalizePantryUnit(pantryItem.unit),
+      );
+      const subtractable = unit
+        ? matching.filter((pantryItem) => canSubtractPantryQuantity(pantryItem, item.name, unit))
+        : [];
+      const pantryQuantity = subtractable.reduce((total, pantryItem) => total + (pantryItem.quantity ?? 0), 0);
+      const inPantry = unquantifiedCoverage || (pantryQuantity > 0 && pantryQuantity >= amountTotal);
+      return {
+        ...item,
+        amount: unit && !inPantry ? Math.max(0, amountTotal - pantryQuantity) : unit ? amountTotal : undefined,
+        unit,
+        inPantry,
+      };
+    })
     .sort((first, second) => Number(first.inPantry) - Number(second.inPantry) || first.name.localeCompare(second.name));
 }
 

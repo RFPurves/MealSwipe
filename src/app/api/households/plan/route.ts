@@ -1,8 +1,9 @@
+import type { Prisma } from "@prisma/client";
 import { getAccountBootstrap } from "@/lib/account-data";
 import { ApiError, apiFailure, requireAuthUser } from "@/lib/auth-user";
 import { generateWeeklyPlan } from "@/lib/meal-planner";
 import { prisma } from "@/lib/prisma";
-import type { OptimizationObjective, PantryItem } from "@/types";
+import type { OptimizationObjective } from "@/types";
 
 const objectives = new Set(["balanced", "lowest-cost", "least-waste", "fastest", "highest-protein", "most-variety"]);
 
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
     const account = await getAccountBootstrap(user.id);
     if (!account.household?.id) throw new ApiError(409, "Create or join a household before generating a shared week.");
     const objective = typeof body.objective === "string" && objectives.has(body.objective) ? body.objective as OptimizationObjective : "balanced";
-    const pantryItems = Array.isArray(body.pantryItems) ? body.pantryItems.filter((item): item is PantryItem => Boolean(item && typeof item === "object" && "name" in item)) : [];
+    const pantryItems = account.pantryItems;
     const planIds = generateWeeklyPlan(
       account.savedIds,
       account.preferences,
@@ -106,4 +107,3 @@ export async function PATCH(request: Request) {
     return apiFailure(error);
   }
 }
-import type { Prisma } from "@prisma/client";

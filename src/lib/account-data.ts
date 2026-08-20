@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AccountBootstrap, AccountUser, HouseholdInviteSummary } from "@/types/account";
 import type { Allergen, DietaryPreference, Meal, MealCategory, NutritionPreference, Preferences } from "@/types";
+import { pantryItemFromRow } from "@/lib/pantry";
 
 function publicUser(user: { id: string; name: string | null; username: string | null; image: string | null }): AccountUser {
   return { id: user.id, name: user.name ?? user.username ?? "MealSwipe member", username: user.username, image: user.image };
@@ -63,6 +64,7 @@ export async function getAccountBootstrap(userId: string): Promise<AccountBootst
                 orderBy: { createdAt: "desc" },
               },
               weeklyPlans: { orderBy: { updatedAt: "desc" }, take: 1 },
+              pantryItems: { orderBy: [{ displayName: "asc" }, { createdAt: "asc" }] },
             },
           },
         },
@@ -141,5 +143,6 @@ export async function getAccountBootstrap(userId: string): Promise<AccountBootst
     householdSignals,
     recipeVisibility: Object.fromEntries(recipes.filter((recipe) => recipe.userId === user.id).map((recipe) => [recipe.recipeIdentifier, recipe.visibility])),
     latestPlanIds: Array.isArray(latestPlan) ? latestPlan.map((id) => typeof id === "string" ? id : null) : [],
+    pantryItems: household?.pantryItems.map(pantryItemFromRow) ?? [],
   };
 }

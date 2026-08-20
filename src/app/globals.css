@@ -2700,6 +2700,7 @@ a {
 .pantry-icon { align-items: center; background: #e8efd5; border-radius: 12px; color: var(--green); display: flex; height: 40px; justify-content: center; width: 40px; }
 .pantry-card h2 { font-size: .9rem; margin: 1px 0 0; }
 .pantry-card .eyebrow { font-size: .45rem; }
+.pantry-shared-label { align-items: center; color: var(--muted); display: flex; font-size: .46rem; font-weight: 700; gap: 4px; margin: 3px 0 0; }
 .pantry-toggle { align-items: center; color: var(--green); display: flex; font-size: .48rem; font-weight: 800; gap: 5px; }
 .pantry-toggle input { accent-color: var(--green); }
 .pantry-entry { display: grid; gap: 6px; grid-template-columns: 1fr auto auto; margin-top: 13px; }
@@ -2710,7 +2711,13 @@ a {
 .photo-upload input { inset: 0; opacity: 0; position: absolute; width: 100%; }
 .pantry-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
 .pantry-chips > span { align-items: center; background: #f0eee7; border-radius: 99px; display: flex; font-size: .52rem; font-weight: 700; gap: 4px; padding: 6px 5px 6px 8px; }
+.pantry-chips > span > span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pantry-chips button { align-items: center; background: rgba(24,63,48,.09); border: 0; border-radius: 50%; color: var(--green); display: flex; height: 17px; justify-content: center; padding: 0; width: 17px; }
+.pantry-edit { background: #f2f0e9; border-radius: 12px; display: grid; gap: 6px; grid-template-columns: minmax(90px, 1fr) 70px 70px auto auto; margin-top: 10px; padding: 9px; }
+.pantry-edit input { background: #fff; border: 1px solid rgba(24,63,48,.1); border-radius: 8px; font: inherit; font-size: .52rem; min-width: 0; padding: 7px 8px; }
+.pantry-edit button { background: var(--green); border: 0; border-radius: 8px; color: #fff; font-size: .48rem; font-weight: 800; padding: 7px 8px; }
+.pantry-edit button + button { background: #dfddd6; color: var(--muted); }
+.pantry-status { color: #9b3b2f; font-size: .51rem; font-weight: 700; margin: 9px 2px 0; }
 .pantry-empty,
 .photo-note { color: var(--muted); font-size: .53rem; line-height: 1.45; margin: 10px 2px 0; }
 .photo-findings { background: #f2f0e9; border-radius: 14px; margin-top: 11px; padding: 11px; }
@@ -2745,6 +2752,8 @@ a {
   .optimization-metrics > div { padding-inline: 2px; }
   .pantry-entry { grid-template-columns: 1fr auto; }
   .photo-upload { grid-column: 1 / -1; justify-content: center; }
+  .pantry-edit { grid-template-columns: 1fr 62px 62px; }
+  .pantry-edit button { grid-row: 2; }
 }
 
 /* Account and shared-household foundation */

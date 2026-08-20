@@ -21,6 +21,7 @@ import type {
 } from "@/types";
 import { defaultHousehold, defaultPreferences } from "@/types";
 import type { AccountBootstrap } from "@/types/account";
+import { normalizePantryName } from "@/lib/pantry";
 
 const STORAGE_KEY = "meal-swipe-state-v4";
 const LEGACY_STORAGE_KEYS = ["meal-swipe-state-v3", "meal-swipe-state-v2", "meal-swipe-state-v1"];
@@ -64,8 +65,9 @@ interface AppContextValue extends StoredState {
   removeWeeklyMeal: (dayIndex: number, summary?: string) => void;
   addDynamicMeal: (meal: Meal) => void;
   setOptimizationObjective: (objective: OptimizationObjective) => void;
-  addPantryItems: (items: Omit<PantryItem, "id">[]) => void;
-  removePantryItem: (id: string) => void;
+  addPantryItems: (items: Omit<PantryItem, "id">[]) => Promise<boolean>;
+  updatePantryItem: (id: string, changes: { name: string; quantity: number | null; unit: string | null }) => Promise<boolean>;
+  removePantryItem: (id: string) => Promise<boolean>;
   setUsePantryFirst: (value: boolean) => void;
   toggleShoppingItem: (name: string) => void;
   resetDiscovery: () => void;
@@ -251,9 +253,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (current.demoMode) return current;
         const dynamicById = new Map(current.dynamicMeals.map((meal) => [meal.id, meal]));
         data.account.dynamicMeals.forEach((meal) => dynamicById.set(meal.id, meal));
-        const hasDemoArtifacts = current.pantryItems.some((item) => item.source === "demo")
-          || current.dynamicMeals.some((meal) => meal.id.startsWith("youtube:demo-"))
+        const hasDemoArtifacts = current.dynamicMeals.some((meal) => meal.id.startsWith("youtube:demo-"))
           || current.lastPlanChange === "VC demo week loaded";
+        const pantryChanged = JSON.stringify(current.pantryItems.map((item) => [item.id, item.name, item.quantity, item.unit]))
+          !== JSON.stringify(data.account.pantryItems.map((item) => [item.id, item.name, item.quantity, item.unit]));
         return {
           ...current,
           preferences: data.account.preferences,
@@ -263,7 +266,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           skippedIds: data.account.skippedIds,
           dynamicMeals: hasDemoArtifacts ? data.account.dynamicMeals : [...dynamicById.values()],
           weeklyPlanIds: data.account.latestPlanIds,
-          ...(hasDemoArtifacts ? { pantryItems: [], usePantryFirst: false, checkedShoppingItems: [], lastPlanChange: undefined } : {}),
+          pantryItems: data.account.pantryItems,
+          checkedShoppingItems: pantryChanged ? [] : current.checkedShoppingItems,
+          ...(hasDemoArtifacts ? { usePantryFirst: false, lastPlanChange: undefined } : {}),
         };
       });
     } catch {
@@ -294,14 +299,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (hydrated) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [hydrated, state]);
+    if (hydrated) {
+      const persisted = status === "authenticated" && !state.demoMode ? { ...state, pantryItems: [] } : state;
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+    }
+  }, [hydrated, state, status]);
 
   useEffect(() => {
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
-      if (hydrated && status === "authenticated" && !state.demoMode) void refreshAccount();
+      if (hydrated && status === "authenticated" && !state.demoMode) {
+        setState((current) => current.pantryItems.length ? { ...current, pantryItems: [], checkedShoppingItems: [] } : current);
+        void refreshAccount();
+      }
       if (status === "unauthenticated") setAccount(null);
     });
     return () => { active = false; };
@@ -436,12 +447,81 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState((current) => ({ ...current, dynamicMeals }));
   }, []);
   const setOptimizationObjective = useCallback((optimizationObjective: OptimizationObjective) => setState((current) => ({ ...current, optimizationObjective })), []);
-  const addPantryItems = useCallback((items: Omit<PantryItem, "id">[]) => setState((current) => {
-    const existing = new Set(current.pantryItems.map((item) => item.name.toLowerCase()));
-    const next = items.filter((item) => !existing.has(item.name.toLowerCase())).map((item, index) => ({ ...item, id: `pantry-${Date.now()}-${index}` }));
-    return { ...current, pantryItems: [...current.pantryItems, ...next], checkedShoppingItems: [] };
-  }), []);
-  const removePantryItem = useCallback((id: string) => setState((current) => ({ ...current, pantryItems: current.pantryItems.filter((item) => item.id !== id), checkedShoppingItems: [] })), []);
+  const addPantryItems = useCallback(async (items: Omit<PantryItem, "id">[]) => {
+    if (!items.length) return false;
+    if (status !== "authenticated" || stateRef.current.demoMode) {
+      setState((current) => {
+        const existing = new Set(current.pantryItems.map((item) => item.normalizedName ?? normalizePantryName(item.name)));
+        const next = items
+          .filter((item) => !existing.has(item.normalizedName ?? normalizePantryName(item.name)))
+          .map((item, index) => ({ ...item, normalizedName: item.normalizedName ?? normalizePantryName(item.name), id: `pantry-${Date.now()}-${index}` }));
+        return { ...current, pantryItems: [...current.pantryItems, ...next], checkedShoppingItems: [] };
+      });
+      return true;
+    }
+    try {
+      const detected = items.every((item) => item.source === "camera" || item.source === "barcode" || item.source === "ai-detected");
+      if (detected) {
+        const response = await fetch("/api/households/pantry/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: items.map((item) => ({ name: item.name })), source: items[0].source }),
+        });
+        if (!response.ok) return false;
+      } else {
+        const responses = await Promise.all(items.map((item) => fetch("/api/households/pantry", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: item.name, quantity: item.quantity, unit: item.unit, source: item.source }),
+          })));
+        if (responses.some((response) => !response.ok)) return false;
+      }
+      await refreshAccount();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [refreshAccount, status]);
+  const updatePantryItem = useCallback(async (id: string, changes: { name: string; quantity: number | null; unit: string | null }) => {
+    if (status !== "authenticated" || stateRef.current.demoMode) {
+      setState((current) => ({
+        ...current,
+        pantryItems: current.pantryItems.map((item) => item.id === id ? { ...item, ...changes, normalizedName: normalizePantryName(changes.name) } : item),
+        checkedShoppingItems: [],
+      }));
+      return true;
+    }
+    try {
+      const response = await fetch("/api/households/pantry", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...changes }),
+      });
+      if (!response.ok) return false;
+      await refreshAccount();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [refreshAccount, status]);
+  const removePantryItem = useCallback(async (id: string) => {
+    if (status !== "authenticated" || stateRef.current.demoMode) {
+      setState((current) => ({ ...current, pantryItems: current.pantryItems.filter((item) => item.id !== id), checkedShoppingItems: [] }));
+      return true;
+    }
+    try {
+      const response = await fetch("/api/households/pantry", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!response.ok) return false;
+      await refreshAccount();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [refreshAccount, status]);
   const setUsePantryFirst = useCallback((usePantryFirst: boolean) => setState((current) => ({ ...current, usePantryFirst })), []);
   const toggleShoppingItem = useCallback((name: string) => setState((current) => ({ ...current, checkedShoppingItems: current.checkedShoppingItems.includes(name) ? current.checkedShoppingItems.filter((item) => item !== name) : [...current.checkedShoppingItems, name] })), []);
   const resetDiscovery = useCallback(() => setState((current) => ({ ...current, skippedIds: [], savedIds: [], weeklyPlanIds: [], dynamicMeals: [], checkedShoppingItems: [] })), []);
@@ -472,13 +552,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     addDynamicMeal,
     setOptimizationObjective,
     addPantryItems,
+    updatePantryItem,
     removePantryItem,
     setUsePantryFirst,
     toggleShoppingItem,
     resetDiscovery,
     loadDemoState,
     resetApp,
-  }), [state, hydrated, account, accountLoading, accountError, refreshAccount, completeOnboarding, updateHousehold, likeMeal, skipMeal, removeSavedMeal, saveVideoMeal, updateVideoRecipe, markRecipeFailed, saveWeeklyPlan, replaceWeeklyMeal, swapWeeklyDays, moveWeeklyMeal, removeWeeklyMeal, addDynamicMeal, setOptimizationObjective, addPantryItems, removePantryItem, setUsePantryFirst, toggleShoppingItem, resetDiscovery, loadDemoState, resetApp]);
+  }), [state, hydrated, account, accountLoading, accountError, refreshAccount, completeOnboarding, updateHousehold, likeMeal, skipMeal, removeSavedMeal, saveVideoMeal, updateVideoRecipe, markRecipeFailed, saveWeeklyPlan, replaceWeeklyMeal, swapWeeklyDays, moveWeeklyMeal, removeWeeklyMeal, addDynamicMeal, setOptimizationObjective, addPantryItems, updatePantryItem, removePantryItem, setUsePantryFirst, toggleShoppingItem, resetDiscovery, loadDemoState, resetApp]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

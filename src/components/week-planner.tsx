@@ -16,6 +16,7 @@ import {
   MicOff,
   MoveRight,
   PackageCheck,
+  Pencil,
   Plus,
   RefreshCw,
   Repeat2,
@@ -100,6 +101,12 @@ export function WeekPlanner() {
   const [isPlanning, setIsPlanning] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [pantryInput, setPantryInput] = useState("");
+  const [pantryStatus, setPantryStatus] = useState<string | null>(null);
+  const [isSavingPantry, setIsSavingPantry] = useState(false);
+  const [editingPantryId, setEditingPantryId] = useState<string | null>(null);
+  const [pantryDraftName, setPantryDraftName] = useState("");
+  const [pantryDraftQuantity, setPantryDraftQuantity] = useState("");
+  const [pantryDraftUnit, setPantryDraftUnit] = useState("");
   const [photoItems, setPhotoItems] = useState<string[]>([]);
   const [photoNote, setPhotoNote] = useState<string | null>(null);
   const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
@@ -142,7 +149,7 @@ export function WeekPlanner() {
         let mealIds: (string | null)[] | null = null;
         if (app.account?.household?.id && !app.demoMode) {
           try {
-            const response = await fetch("/api/households/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ objective, pantryItems, usePantryFirst }) });
+            const response = await fetch("/api/households/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ objective, usePantryFirst }) });
             const data = await response.json() as { planIds?: (string | null)[] };
             if (response.ok && data.planIds) mealIds = data.planIds;
           } catch { /* Fall back to the same deterministic on-device planner. */ }
@@ -231,11 +238,59 @@ export function WeekPlanner() {
     recognitionRef.current = recognition; setIsListening(true); recognition.start();
   };
 
-  const addPantry = () => {
+  const addPantry = async () => {
     const names = pantryInput.split(",").map((item) => item.trim()).filter(Boolean);
     if (!names.length) return;
-    app.addPantryItems(names.map((name) => ({ name, source: "manual", confirmed: true })));
-    setPantryInput("");
+    setIsSavingPantry(true); setPantryStatus(null);
+    const saved = await app.addPantryItems(names.map((name) => ({ name, source: "manual", confirmed: true })));
+    if (saved) setPantryInput("");
+    else setPantryStatus("We couldn't update the shared pantry. Please try again.");
+    setIsSavingPantry(false);
+  };
+
+  const beginPantryEdit = (id: string) => {
+    const item = pantryItems.find((candidate) => candidate.id === id);
+    if (!item) return;
+    setEditingPantryId(id);
+    setPantryDraftName(item.name);
+    setPantryDraftQuantity(item.quantity === null || item.quantity === undefined ? "" : String(item.quantity));
+    setPantryDraftUnit(item.unit ?? "");
+    setPantryStatus(null);
+  };
+
+  const savePantryEdit = async () => {
+    if (!editingPantryId || !pantryDraftName.trim()) return;
+    const quantity = pantryDraftQuantity.trim() === "" ? null : Number(pantryDraftQuantity);
+    if (quantity !== null && (!Number.isFinite(quantity) || quantity < 0)) {
+      setPantryStatus("Enter a valid pantry quantity.");
+      return;
+    }
+    setIsSavingPantry(true); setPantryStatus(null);
+    const saved = await app.updatePantryItem(editingPantryId, {
+      name: pantryDraftName.trim(),
+      quantity,
+      unit: pantryDraftUnit.trim() || null,
+    });
+    if (saved) setEditingPantryId(null);
+    else setPantryStatus("We couldn't save that pantry change. Check for a duplicate name and try again.");
+    setIsSavingPantry(false);
+  };
+
+  const confirmPhotoItems = async () => {
+    setIsSavingPantry(true); setPantryStatus(null);
+    const saved = await app.addPantryItems(photoItems.map((name) => ({ name, source: "ai-detected", confirmed: true })));
+    if (saved) { setPhotoItems([]); setPhotoNote(null); }
+    else setPantryStatus("We couldn't add the confirmed items to the shared pantry.");
+    setIsSavingPantry(false);
+  };
+
+  const removePantryItem = async (id: string) => {
+    setIsSavingPantry(true); setPantryStatus(null);
+    const removed = await app.removePantryItem(id);
+    if (removed) {
+      if (editingPantryId === id) setEditingPantryId(null);
+    } else setPantryStatus("We couldn't remove that shared pantry item. Please try again.");
+    setIsSavingPantry(false);
   };
 
   const analyzePhoto = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -327,16 +382,18 @@ export function WeekPlanner() {
       </div>
 
       <section className="pantry-card">
-        <header><div className="pantry-icon"><PackageCheck size={22} /></div><div><p className="eyebrow">What do I already have?</p><h2>Pantry & fridge</h2></div><label className="pantry-toggle"><input type="checkbox" checked={usePantryFirst} onChange={(event) => app.setUsePantryFirst(event.target.checked)} /><span>Use these first</span></label></header>
-        <div className="pantry-entry"><input value={pantryInput} onChange={(event) => setPantryInput(event.target.value)} placeholder="eggs, feta, spinach…" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addPantry(); } }} /><button type="button" onClick={addPantry}><Plus size={17} /> Add</button><label className="photo-upload"><input type="file" accept="image/*" onChange={analyzePhoto} disabled={isAnalyzingPhoto} /><ImagePlus size={17} /><span>{isAnalyzingPhoto ? "Looking…" : "Photo"}</span></label></div>
-        {pantryItems.length ? <div className="pantry-chips">{pantryItems.map((item) => <span key={item.id}>{item.name}<button type="button" onClick={() => app.removePantryItem(item.id)} aria-label={`Remove ${item.name}`}><X size={12} /></button></span>)}</div> : <p className="pantry-empty">Add ingredients to prioritize them and keep them off the shopping list.</p>}
-        {photoItems.length ? <div className="photo-findings"><strong>We found—please confirm:</strong><div>{photoItems.map((item) => <span key={item}>{item}</span>)}</div>{photoNote ? <p>{photoNote}</p> : null}<footer><button type="button" onClick={() => { app.addPantryItems(photoItems.map((name) => ({ name, source: "photo", confirmed: true }))); setPhotoItems([]); setPhotoNote(null); }}>Confirm items</button><button type="button" onClick={() => { setPhotoItems([]); setPhotoNote(null); }}>Cancel</button></footer></div> : photoNote ? <p className="photo-note">{photoNote}</p> : null}
+        <header><div className="pantry-icon"><PackageCheck size={22} /></div><div><p className="eyebrow">What do I already have?</p><h2>Pantry & fridge</h2><p className="pantry-shared-label"><Users size={11} /> Shared with your household</p></div><label className="pantry-toggle"><input type="checkbox" checked={usePantryFirst} onChange={(event) => app.setUsePantryFirst(event.target.checked)} /><span>Use these first</span></label></header>
+        <div className="pantry-entry"><input aria-label="Add pantry items" value={pantryInput} onChange={(event) => setPantryInput(event.target.value)} placeholder="eggs, feta, spinach…" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addPantry(); } }} /><button type="button" onClick={() => void addPantry()} disabled={isSavingPantry}><Plus size={17} /> Add</button><label className="photo-upload"><input type="file" accept="image/*" onChange={analyzePhoto} disabled={isAnalyzingPhoto || isSavingPantry} /><ImagePlus size={17} /><span>{isAnalyzingPhoto ? "Looking…" : "Photo"}</span></label></div>
+        {pantryItems.length ? <div className="pantry-chips">{pantryItems.map((item) => <span key={item.id}><span>{item.name}{item.quantity !== null && item.quantity !== undefined ? ` · ${item.quantity}${item.unit ? ` ${item.unit}` : ""}` : ""}</span><button type="button" onClick={() => beginPantryEdit(item.id)} aria-label={`Edit ${item.name}`} disabled={isSavingPantry}><Pencil size={11} /></button><button type="button" onClick={() => void removePantryItem(item.id)} aria-label={`Remove ${item.name}`} disabled={isSavingPantry}><X size={12} /></button></span>)}</div> : <p className="pantry-empty">Add ingredients to prioritize them and keep them off the shopping list.</p>}
+        {editingPantryId ? <div className="pantry-edit"><input aria-label="Pantry item name" value={pantryDraftName} onChange={(event) => setPantryDraftName(event.target.value)} /><input aria-label="Pantry item quantity" type="number" min="0" step="any" placeholder="Qty" value={pantryDraftQuantity} onChange={(event) => setPantryDraftQuantity(event.target.value)} /><input aria-label="Pantry item unit" placeholder="Unit" value={pantryDraftUnit} onChange={(event) => setPantryDraftUnit(event.target.value)} /><button type="button" onClick={() => void savePantryEdit()} disabled={isSavingPantry}>Save</button><button type="button" onClick={() => setEditingPantryId(null)}>Cancel</button></div> : null}
+        {pantryStatus ? <p className="pantry-status" role="status">{pantryStatus}</p> : null}
+        {photoItems.length ? <div className="photo-findings"><strong>We found—please confirm:</strong><div>{photoItems.map((item) => <span key={item}>{item}</span>)}</div>{photoNote ? <p>{photoNote}</p> : null}<footer><button type="button" onClick={() => void confirmPhotoItems()} disabled={isSavingPantry}>Confirm items</button><button type="button" onClick={() => { setPhotoItems([]); setPhotoNote(null); }}>Cancel</button></footer></div> : photoNote ? <p className="photo-note">{photoNote}</p> : null}
       </section>
 
       <section className="shopping-list-card">
         <header className="shopping-header"><div className="shopping-icon"><ShoppingBasket size={23} /></div><div><p className="eyebrow">Live list for {planMeals.length} dinners</p><h2>Shopping list</h2></div><span>{checkedItems.size}/{neededShoppingItems.length}</span></header>
         <div className="shopping-progress"><span style={{ width: `${neededShoppingItems.length ? (checkedItems.size / neededShoppingItems.length) * 100 : 0}%` }} /></div>
-        <p className="shopping-summary">Matching units are combined. Pantry items stay visible but are removed from what you need to buy.</p>
+        <p className="shopping-summary">Matching units are combined. Shared household pantry items stay visible but are removed from what you need to buy.</p>
         <div className="shopping-groups">{groupedShopping.map(({ category, items }) => <section className="shopping-group" key={category}><header><span>{categoryIcons[category]}</span><h3>{category}</h3><small>{items.length}</small></header><div>{items.map((item) => { const checked = checkedItems.has(item.name); const amount = formatShoppingAmount(item); return <button className={`shopping-item${checked ? " is-checked" : ""}${item.mealCount > 1 ? " is-shared" : ""}${item.inPantry ? " is-pantry" : ""}`} key={item.name} type="button" aria-pressed={checked} onClick={() => !item.inPantry && app.toggleShoppingItem(item.name)}><span className="shopping-check">{item.inPantry ? <PackageCheck size={13} /> : checked ? <Check size={13} /> : null}</span><span className="shopping-item-copy"><strong>{titleCase(item.name)}</strong><small>{item.inPantry ? "Already in your pantry" : `${amount ? `${amount} · ` : ""}Used in ${item.usedIn.join(" + ")}`}</small></span>{item.inPantry ? <b>PANTRY</b> : item.mealCount > 1 ? <b>REUSE</b> : null}</button>; })}</div></section>)}</div>
       </section>
     </section>

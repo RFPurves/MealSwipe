@@ -137,7 +137,10 @@ export type OptimizationObjective =
 export interface PantryItem {
   id: string;
   name: string;
-  source: "manual" | "photo" | "demo";
+  normalizedName?: string;
+  quantity?: number | null;
+  unit?: string | null;
+  source: "manual" | "camera" | "barcode" | "ai-detected" | "demo";
   confirmed: boolean;
 }
 

@@ -1,4 +1,4 @@
-import type { Household, Meal, Preferences } from "@/types";
+import type { Household, Meal, PantryItem, Preferences } from "@/types";
 
 export type HouseholdRole = "OWNER" | "MEMBER";
 export type RecipeVisibility = "PRIVATE" | "HOUSEHOLD" | "PUBLIC";
@@ -32,4 +32,5 @@ export interface AccountBootstrap {
   householdSignals: Record<string, string[]>;
   recipeVisibility: Record<string, RecipeVisibility>;
   latestPlanIds: (string | null)[];
+  pantryItems: PantryItem[];
 }
