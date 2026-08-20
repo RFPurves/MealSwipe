@@ -6,6 +6,10 @@ import type { OptimizationObjective, PantryItem } from "@/types";
 
 const objectives = new Set(["balanced", "lowest-cost", "least-waste", "fastest", "highest-protein", "most-variety"]);
 
+function jsonValue(value: unknown) {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
 function monday(date = new Date()) {
   const result = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   result.setUTCDate(result.getUTCDate() - ((result.getUTCDay() + 6) % 7));
@@ -56,22 +60,47 @@ export async function PATCH(request: Request) {
       throw new ApiError(400, "A seven-day plan is required.");
     }
     const planIds = body.planIds.map((id) => typeof id === "string" ? id.slice(0, 200) : null);
+    const selectedIds = new Set(planIds.filter((id): id is string => Boolean(id)));
+    const dynamicMeals = Array.isArray(body.dynamicMeals)
+      ? body.dynamicMeals.filter((meal): meal is Record<string, unknown> => {
+          if (!meal || typeof meal !== "object" || Array.isArray(meal)) return false;
+          const id = typeof meal.id === "string" ? meal.id : "";
+          return id.startsWith("combined:") && selectedIds.has(id) && typeof meal.title === "string";
+        }).slice(0, 7)
+      : [];
     const weekStart = monday();
     const weekEnd = new Date(weekStart);
     weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
-    await prisma.weeklyPlan.create({
-      data: {
-        householdId: membership.householdId,
-        generatedById: user.id,
-        weekStart,
-        weekEnd,
-        selectedRecipes: planIds,
-        plannerSettings: JSON.parse(JSON.stringify({
-          objective: typeof body.objective === "string" ? body.objective : "balanced",
-          summary: typeof body.summary === "string" ? body.summary.slice(0, 200) : "Plan updated",
-        })) as Prisma.InputJsonValue,
-      },
-    });
+    await prisma.$transaction([
+      ...dynamicMeals.map((meal) => prisma.savedRecipe.upsert({
+        where: { userId_recipeIdentifier: { userId: user.id, recipeIdentifier: meal.id as string } },
+        create: {
+          userId: user.id,
+          recipeIdentifier: meal.id as string,
+          recipe: jsonValue(meal),
+          provenance: meal.source && typeof meal.source === "object" ? jsonValue(meal.source) : undefined,
+          visibility: "HOUSEHOLD",
+        },
+        update: {
+          recipe: jsonValue(meal),
+          provenance: meal.source && typeof meal.source === "object" ? jsonValue(meal.source) : undefined,
+          visibility: "HOUSEHOLD",
+        },
+      })),
+      prisma.weeklyPlan.create({
+        data: {
+          householdId: membership.householdId,
+          generatedById: user.id,
+          weekStart,
+          weekEnd,
+          selectedRecipes: planIds,
+          plannerSettings: jsonValue({
+            objective: typeof body.objective === "string" ? body.objective : "balanced",
+            summary: typeof body.summary === "string" ? body.summary.slice(0, 200) : "Plan updated",
+          }),
+        },
+      }),
+    ]);
     return Response.json({ ok: true });
   } catch (error) {
     return apiFailure(error);

@@ -394,7 +394,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const markRecipeFailed = useCallback((id: string) => setState((current) => ({ ...current, dynamicMeals: current.dynamicMeals.map((meal) => meal.id === id ? { ...meal, recipeStatus: "failed", safetyStatus: "review-needed", safetyNotes: ["We could not verify this recipe. Review the source before cooking."] } : meal) })), []);
 
   const persistWeeklyPlan = useCallback((planIds: (string | null)[], summary: string) => {
-    void sendAccountMutation("/api/households/plan", { method: "PATCH", body: JSON.stringify({ planIds, summary, objective: stateRef.current.optimizationObjective }) });
+    const selectedIds = new Set(planIds.filter((id): id is string => Boolean(id)));
+    const dynamicMeals = stateRef.current.dynamicMeals.filter((meal) => selectedIds.has(meal.id) && meal.recipeOrigin === "combined");
+    void sendAccountMutation("/api/households/plan", { method: "PATCH", body: JSON.stringify({ planIds, summary, objective: stateRef.current.optimizationObjective, dynamicMeals }) });
   }, [sendAccountMutation]);
   const saveWeeklyPlan = useCallback((mealIds: (string | null)[], summary = "Weekly plan updated") => {
     setState((current) => ({ ...current, weeklyPlanIds: mealIds, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary }));
@@ -428,7 +430,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState((current) => ({ ...current, weeklyPlanIds: next, planRevision: current.planRevision + 1, checkedShoppingItems: [], lastPlanChange: summary }));
     persistWeeklyPlan(next, summary);
   }, [persistWeeklyPlan]);
-  const addDynamicMeal = useCallback((meal: Meal) => setState((current) => ({ ...current, dynamicMeals: [...current.dynamicMeals.filter((item) => item.id !== meal.id), meal] })), []);
+  const addDynamicMeal = useCallback((meal: Meal) => {
+    const dynamicMeals = [...stateRef.current.dynamicMeals.filter((item) => item.id !== meal.id), meal];
+    stateRef.current = { ...stateRef.current, dynamicMeals };
+    setState((current) => ({ ...current, dynamicMeals }));
+  }, []);
   const setOptimizationObjective = useCallback((optimizationObjective: OptimizationObjective) => setState((current) => ({ ...current, optimizationObjective })), []);
   const addPantryItems = useCallback((items: Omit<PantryItem, "id">[]) => setState((current) => {
     const existing = new Set(current.pantryItems.map((item) => item.name.toLowerCase()));
