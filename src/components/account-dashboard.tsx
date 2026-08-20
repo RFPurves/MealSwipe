@@ -1,48 +1,37 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { signOut, useSession } from "next-auth/react";
-import { Check, ChevronRight, LoaderCircle, LogOut, Search, ShieldCheck, Sparkles, UserPlus, Users } from "lucide-react";
+import { Bell, Check, ChevronRight, ImagePlus, LoaderCircle, LogOut, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { BottomNav } from "@/components/bottom-nav";
 import { useMealApp } from "@/components/app-provider";
-import type { AccountUser } from "@/types/account";
 
 const allergyOptions = ["Dairy", "Eggs", "Gluten", "Nuts", "Shellfish", "Soy"];
+const nutritionOptions = ["Balanced", "High protein", "Lower carb", "None"];
 
 export function AccountDashboard() {
   const { status } = useSession();
-  const app = useMealApp();
-  const { account, accountLoading, accountError, refreshAccount } = app;
-  const [username, setUsername] = useState("");
-  const [name, setName] = useState("");
-  const [dietary, setDietary] = useState("Everything");
-  const [allergies, setAllergies] = useState<string[]>([]);
-  const [dislikes, setDislikes] = useState("");
-  const [householdName, setHouseholdName] = useState("");
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<(AccountUser & { available: boolean })[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { account, accountLoading, accountError, refreshAccount } = useMealApp();
+  const [username, setUsername] = useState(""); const [name, setName] = useState(""); const [image, setImage] = useState<string | null>(null);
+  const [dietary, setDietary] = useState("Everything"); const [nutrition, setNutrition] = useState("Balanced");
+  const [allergies, setAllergies] = useState<string[]>([]); const [dislikes, setDislikes] = useState("");
+  const [maximumCookingTime, setMaximumCookingTime] = useState(45); const [personalDinnersPerWeek, setPersonalDinnersPerWeek] = useState(7); const [strictDislikes, setStrictDislikes] = useState(true);
+  const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!account) return;
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
-      setUsername(account.user.username ?? "");
-      setName(account.user.name);
-      setDietary(account.preferences.dietary);
-      setAllergies(account.preferences.allergies);
-      setDislikes(account.preferences.dislikedIngredients.join(", "));
+      setUsername(account.user.username ?? ""); setName(account.user.name); setImage(account.user.image);
+      setDietary(account.preferences.dietary); setNutrition(account.preferences.nutritionPreference ?? "Balanced"); setAllergies(account.preferences.allergies);
+      setDislikes(account.preferences.dislikedIngredients.join(", ")); setMaximumCookingTime(account.preferences.maximumCookingTime ?? 45);
+      setPersonalDinnersPerWeek(account.preferences.personalDinnersPerWeek ?? 7); setStrictDislikes(account.preferences.strictDislikes ?? true);
     });
     return () => { active = false; };
   }, [account]);
-
-  useEffect(() => {
-    if (status !== "authenticated" || account || accountLoading || accountError) return;
-    queueMicrotask(() => void refreshAccount());
-  }, [account, accountError, accountLoading, refreshAccount, status]);
 
   const mutate = async (url: string, init: RequestInit, success: string) => {
     setBusy(true); setMessage(null);
@@ -50,62 +39,45 @@ export function AccountDashboard() {
       const response = await fetch(url, { ...init, headers: { "Content-Type": "application/json" } });
       const data = await response.json() as { message?: string };
       if (!response.ok) throw new Error(data.message ?? "That could not be completed.");
-      setMessage(success);
-      await refreshAccount();
-      return true;
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "That could not be completed.");
-      return false;
-    } finally { setBusy(false); }
+      setMessage(success); await refreshAccount(); return true;
+    } catch (error) { setMessage(error instanceof Error ? error.message : "That could not be completed."); return false; }
+    finally { setBusy(false); }
+  };
+
+  const chooseImage = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    if (!/image\/(?:png|jpe?g|webp)/.test(file.type) || file.size > 250_000) { setMessage("Choose a JPG, PNG, or WebP image smaller than 250 KB."); event.target.value = ""; return; }
+    const dataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
+    setImage(dataUrl); setMessage("Picture ready. Save your profile to keep it."); event.target.value = "";
   };
 
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
-    await mutate("/api/account/profile", { method: "PATCH", body: JSON.stringify({ username, name, preferences: { dietary, allergies, dislikedIngredients: dislikes.split(",").map((item) => item.trim()).filter(Boolean), categories: account?.preferences.categories ?? [] } }) }, "Profile and food preferences saved.");
+    await mutate("/api/account/profile", { method: "PATCH", body: JSON.stringify({ username, name, image, preferences: { dietary, nutritionPreference: nutrition, allergies, dislikedIngredients: dislikes.split(",").map((item) => item.trim()).filter(Boolean), categories: account?.preferences.categories ?? [], maximumCookingTime, personalDinnersPerWeek, strictDislikes } }) }, "Profile and planning preferences saved.");
   };
 
-  const createHousehold = async (event: FormEvent) => {
-    event.preventDefault();
-    if (await mutate("/api/households", { method: "POST", body: JSON.stringify({ name: householdName }) }, "Household created.")) setHouseholdName("");
-  };
+  if (status === "loading" || accountLoading || (status === "authenticated" && !account && !accountError)) return <main className="loading-screen"><LoaderCircle className="spin" /><p>Loading your profile…</p></main>;
+  if (status !== "authenticated") return <main className="auth-page"><section className="auth-card"><div className="auth-mark"><Sparkles /></div><h1>Sign in to MealSwipe</h1><Link className="primary-button" href="/auth/signin">Continue</Link></section></main>;
+  if (!account) return <main className="auth-page"><section className="auth-card"><h1>We couldn&apos;t load your account.</h1><button className="primary-button" onClick={() => void refreshAccount()}>Try again</button></section></main>;
 
-  const search = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setMessage(null);
-    try {
-      const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
-      const data = await response.json() as { users?: (AccountUser & { available: boolean })[]; message?: string };
-      if (!response.ok) throw new Error(data.message);
-      setResults(data.users ?? []);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Search failed."); }
-    finally { setBusy(false); }
-  };
+  return <div className="account-shell"><main className="account-page">
+    <header className="account-hero"><Link href="/discover" className="rail-brand"><span className="brand-mark"><Sparkles size={18} /></span><span>MealSwipe</span></Link><button type="button" onClick={() => void signOut({ redirectTo: "/auth/signin" })}><LogOut size={15} /> Sign out</button></header>
+    <section className="account-welcome"><div className="account-avatar">{image ? <Image src={image} alt="" fill sizes="68px" unoptimized /> : account.user.name.slice(0, 1).toUpperCase()}</div><div><p className="eyebrow">Your profile</p><h1>{account.user.name}</h1><p>@{account.user.username}</p></div></section>
+    {message ? <div className="account-message" role="status"><Check size={15} /> {message}</div> : null}
 
-  if (status === "loading" || (status === "authenticated" && !account && !accountError)) return <main className="loading-screen"><LoaderCircle className="spin" /><p>Loading your household…</p></main>;
-  if (status !== "authenticated") return <main className="auth-page"><section className="auth-card"><div className="auth-mark"><Sparkles /></div><h1>Make MealSwipe yours</h1><p className="auth-copy">Sign in to create a household, invite another member, and sync your meal plan.</p><Link className="primary-button" href="/auth/signin">Sign in</Link></section></main>;
-  if (!account) return <main className="auth-page"><section className="auth-card"><h1>We couldn&apos;t load your account.</h1><p className="auth-copy">Check the database connection and try again.</p><button className="primary-button" onClick={() => void refreshAccount()}>Try again</button></section></main>;
+    {account.receivedInvites.length ? <section className="account-card invitation-notice"><header><div><p className="eyebrow">Notifications</p><h2>{account.receivedInvites.length} household invitation{account.receivedInvites.length === 1 ? "" : "s"}</h2></div><Bell /></header>{account.receivedInvites.map((invite) => <div className="invite-row" key={invite.id}><div><strong>@{invite.invitedBy.username ?? invite.invitedBy.name} invited you to join {invite.householdName}</strong><span>Your profile stays yours. Shared planning begins only if you accept.</span></div><div><button disabled={busy} onClick={() => void mutate(`/api/invitations/${invite.id}`, { method: "PATCH", body: JSON.stringify({ action: "accept" }) }, `Joined ${invite.householdName}.`)}>Accept</button><button className="secondary" disabled={busy} onClick={() => void mutate(`/api/invitations/${invite.id}`, { method: "PATCH", body: JSON.stringify({ action: "decline" }) }, "Invitation declined.")}>Decline</button></div></div>)}</section> : null}
 
-  return (
-    <div className="account-shell">
-      <main className="account-page">
-        <header className="account-hero"><Link href="/discover" className="rail-brand"><span className="brand-mark"><Sparkles size={18} /></span><span>MealSwipe</span></Link><button type="button" onClick={() => void signOut({ redirectTo: "/" })}><LogOut size={15} /> Sign out</button></header>
-        <section className="account-welcome"><div className="account-avatar">{account.user.name.slice(0, 1).toUpperCase()}</div><div><p className="eyebrow">Your account</p><h1>{account.user.name}</h1><p>{account.user.username ? `@${account.user.username}` : "Choose your unique MealSwipe username"}</p></div></section>
-        {message ? <div className="account-message" role="status"><Check size={15} /> {message}</div> : null}
+    <form className="account-card account-form" onSubmit={saveProfile}><header><div><p className="eyebrow">Personal source of truth</p><h2>Profile & preferences</h2></div><ShieldCheck size={22} /></header>
+      <div className="profile-picture-field"><div className="profile-picture-preview">{image ? <Image src={image} alt="Your profile" fill sizes="88px" unoptimized /> : account.user.name.slice(0, 1).toUpperCase()}</div><label className="secondary-button"><ImagePlus size={16} /> Replace picture<input type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseImage} /></label>{image ? <button className="link-button" type="button" onClick={() => setImage(null)}>Remove</button> : null}</div>
+      <label>Display name<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label>Username<div className="username-input"><span>@</span><input value={username} onChange={(event) => setUsername(event.target.value)} required /></div><small>Your email is never searchable.</small></label>
+      <label>Dietary preference<select value={dietary} onChange={(event) => setDietary(event.target.value)}>{["Everything", "Vegetarian", "Vegan", "Pescatarian", "High protein"].map((option) => <option key={option}>{option}</option>)}</select></label>
+      <label>Nutrition preference<select value={nutrition} onChange={(event) => setNutrition(event.target.value)}>{nutritionOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+      <fieldset><legend>Allergies · always hard filters</legend><div className="account-checks">{allergyOptions.map((allergy) => <label key={allergy}><input type="checkbox" checked={allergies.includes(allergy)} onChange={() => setAllergies((current) => current.includes(allergy) ? current.filter((item) => item !== allergy) : [...current, allergy])} /> {allergy}</label>)}</div></fieldset>
+      <label>Disliked ingredients<input value={dislikes} onChange={(event) => setDislikes(event.target.value)} placeholder="mushrooms, coriander" /></label><label className="onboarding-check"><input type="checkbox" checked={strictDislikes} onChange={(event) => setStrictDislikes(event.target.checked)} /><span>Treat dislikes as strict rules</span></label>
+      <div className="account-range-row"><label>Maximum cooking time<input type="number" min="10" max="240" value={maximumCookingTime} onChange={(event) => setMaximumCookingTime(Number(event.target.value))} /></label><label>Personal dinners per week<input type="number" min="1" max="7" value={personalDinnersPerWeek} onChange={(event) => setPersonalDinnersPerWeek(Number(event.target.value))} /></label></div>
+      <button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save profile"}</button>
+    </form>
 
-        <form className="account-card account-form" onSubmit={saveProfile}>
-          <header><div><p className="eyebrow">Profile & safety</p><h2>Your preferences</h2></div><ShieldCheck size={22} /></header>
-          <label>Display name<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
-          <label>Username<div className="username-input"><span>@</span><input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="rab" required /></div><small>3–24 letters, numbers, dots, or underscores. Your email is never searchable.</small></label>
-          <label>Dietary preference<select value={dietary} onChange={(event) => setDietary(event.target.value)}><option>Everything</option><option>Vegetarian</option><option>Vegan</option><option>Pescatarian</option><option>High protein</option></select></label>
-          <fieldset><legend>Allergies (always treated as hard filters)</legend><div className="account-checks">{allergyOptions.map((allergy) => <label key={allergy}><input type="checkbox" checked={allergies.includes(allergy)} onChange={() => setAllergies((current) => current.includes(allergy) ? current.filter((item) => item !== allergy) : [...current, allergy])} /> {allergy}</label>)}</div></fieldset>
-          <label>Disliked ingredients<input value={dislikes} onChange={(event) => setDislikes(event.target.value)} placeholder="mushrooms, coriander" /><small>Separate ingredients with commas.</small></label>
-          <button className="primary-button" disabled={busy}>{busy ? "Saving…" : "Save profile"}</button>
-        </form>
-
-        {account.receivedInvites.length ? <section className="account-card"><header><div><p className="eyebrow">Invitations</p><h2>Join a household</h2></div><UserPlus /></header>{account.receivedInvites.map((invite) => <div className="invite-row" key={invite.id}><div><strong>{invite.householdName}</strong><span>Invited by @{invite.invitedBy.username ?? invite.invitedBy.name}</span></div><div><button onClick={() => void mutate(`/api/invitations/${invite.id}`, { method: "PATCH", body: JSON.stringify({ action: "accept" }) }, `Joined ${invite.householdName}.`)}>Accept</button><button className="secondary" onClick={() => void mutate(`/api/invitations/${invite.id}`, { method: "PATCH", body: JSON.stringify({ action: "decline" }) }, "Invitation declined.")}>Decline</button></div></div>)}</section> : null}
-
-        {account.household ? <section className="account-card household-card"><header><div><p className="eyebrow">Shared household</p><h2>{account.household.name}</h2></div><span>{account.householdRole === "OWNER" ? "Owner" : "Member"}</span></header><div className="member-list">{account.household.members.map((member) => <Link href={member.username ? `/profile/${member.username}` : "/account"} key={member.id}><span className="member-avatar">{member.name.slice(0, 1)}</span><div><strong>{member.name}</strong><small>{member.username ? `@${member.username}` : "Username not set"} · {member.dietary}</small></div><ChevronRight size={16} /></Link>)}</div>{account.pendingInvites.length ? <div className="pending-list"><strong>Pending</strong>{account.pendingInvites.map((invite) => <span key={invite.id}>@{invite.invitedUser?.username ?? invite.invitedUser?.name}</span>)}</div> : null}{account.householdRole === "OWNER" ? <form className="invite-search" onSubmit={search}><label>Invite by username<div><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search @username" /><button disabled={busy}>Search</button></div></label>{results.length ? <div className="search-results">{results.map((result) => <div key={result.id}><span><strong>{result.name}</strong><small>@{result.username}</small></span><button type="button" disabled={!result.available || busy} onClick={() => void mutate("/api/households/invites", { method: "POST", body: JSON.stringify({ username: result.username }) }, `Invitation sent to @${result.username}.`)}>{result.available ? "Invite" : "In a household"}</button></div>)}</div> : null}</form> : null}</section> : <form className="account-card create-household" onSubmit={createHousehold}><header><div><p className="eyebrow">Shared planning</p><h2>Create your household</h2></div><Users /></header><p>Start a household, then invite another MealSwipe user by their username.</p><label>Household name<input value={householdName} onChange={(event) => setHouseholdName(event.target.value)} placeholder="The Purves household" required /></label><button className="primary-button" disabled={busy}>Create household</button></form>}
-      </main>
-      <BottomNav />
-    </div>
-  );
+    <Link className="account-card household-entry" href="/household"><span className="account-entry-icon"><Users /></span><div><p className="eyebrow">Optional collaboration</p><h2>Household</h2><p>{account.household ? `${account.household.name} · ${account.household.members.length} members` : "Create a household or review invitations when you want to plan together."}</p></div><ChevronRight /></Link>
+  </main><BottomNav /></div>;
 }

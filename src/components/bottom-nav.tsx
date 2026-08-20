@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bookmark, CalendarDays, Flame, Users } from "lucide-react";
+import { Bookmark, CalendarDays, Flame, UserRound } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useMealApp } from "@/components/app-provider";
 
@@ -9,12 +9,12 @@ const navItems = [
   { href: "/discover", label: "Discover", icon: Flame },
   { href: "/saved", label: "Saved", icon: Bookmark },
   { href: "/week", label: "My Week", icon: CalendarDays },
-  { href: "/account", label: "Household", icon: Users },
+  { href: "/account", label: "Profile", icon: UserRound },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
-  const { savedIds } = useMealApp();
+  const { savedIds, account } = useMealApp();
 
   return (
     <nav className="bottom-nav" aria-label="Main navigation">
@@ -32,6 +32,7 @@ export function BottomNav() {
               {label === "Saved" && savedIds.length > 0 ? (
                 <span className="nav-badge">{savedIds.length}</span>
               ) : null}
+              {label === "Profile" && (account?.receivedInvites.length ?? 0) > 0 ? <span className="nav-badge">{account?.receivedInvites.length}</span> : null}
             </span>
             <span>{label}</span>
           </Link>

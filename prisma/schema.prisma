@@ -38,27 +38,61 @@ enum PantryItemSource {
 }
 
 model User {
-  id                 String                @id @default(cuid())
-  email              String?               @unique
-  emailVerified      DateTime?
-  name               String?
-  username           String?               @unique
-  image              String?
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
-  accounts           Account[]
-  sessions           Session[]
-  preference         UserPreference?
-  membership         HouseholdMembership?
-  householdsCreated  Household[]           @relation("HouseholdCreator")
-  invitesReceived    HouseholdInvite[]     @relation("InvitedUser")
-  invitesSent        HouseholdInvite[]     @relation("InvitingUser")
-  swipes             SwipeEvent[]
-  savedRecipes       SavedRecipe[]
-  weeklyPlans        WeeklyPlan[]          @relation("PlanGenerator")
-  pantryItemsCreated HouseholdPantryItem[] @relation("PantryItemCreator")
+  id                  String                @id @default(cuid())
+  email               String?               @unique
+  emailVerified       DateTime?
+  name                String?
+  username            String?               @unique
+  image               String?
+  profileCompleted    Boolean               @default(false)
+  profileCompletedAt  DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  accounts            Account[]
+  sessions            Session[]
+  preference          UserPreference?
+  membership          HouseholdMembership?
+  householdsCreated   Household[]           @relation("HouseholdCreator")
+  invitesReceived     HouseholdInvite[]     @relation("InvitedUser")
+  invitesSent         HouseholdInvite[]     @relation("InvitingUser")
+  swipes              SwipeEvent[]
+  savedRecipes        SavedRecipe[]
+  weeklyPlans         WeeklyPlan[]          @relation("PlanGenerator")
+  personalWeeklyPlans PersonalWeeklyPlan[]
+  personalPantryItems PersonalPantryItem[]
+  pantryItemsCreated  HouseholdPantryItem[] @relation("PantryItemCreator")
 
   @@index([username])
+}
+
+model PersonalPantryItem {
+  id             String           @id @default(cuid())
+  userId         String
+  normalizedName String
+  displayName    String
+  quantity       Float?
+  unit           String?
+  source         PantryItemSource @default(MANUAL)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, normalizedName])
+  @@index([userId, updatedAt])
+}
+
+model PersonalWeeklyPlan {
+  id              String   @id @default(cuid())
+  userId          String
+  weekStart       DateTime
+  weekEnd         DateTime
+  selectedRecipes Json
+  plannerSettings Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, weekStart])
 }
 
 model Account {
@@ -94,18 +128,19 @@ model VerificationToken {
 }
 
 model UserPreference {
-  id                  String   @id @default(cuid())
-  userId              String   @unique
-  dietaryPreference   String   @default("Everything")
-  allergies           String[] @default([])
-  dislikedIngredients String[] @default([])
-  nutritionPreference String   @default("Balanced")
-  cookingCategories   String[] @default([])
-  maximumCookingTime  Int      @default(45)
-  strictDislikes      Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  dietaryPreference      String   @default("Everything")
+  allergies              String[] @default([])
+  dislikedIngredients    String[] @default([])
+  nutritionPreference    String   @default("Balanced")
+  cookingCategories      String[] @default([])
+  maximumCookingTime     Int      @default(45)
+  personalDinnersPerWeek Int      @default(7)
+  strictDislikes         Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Household {

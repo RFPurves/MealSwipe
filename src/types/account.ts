@@ -8,6 +8,7 @@ export interface AccountUser {
   name: string;
   username: string | null;
   image: string | null;
+  profileCompleted?: boolean;
 }
 
 export interface HouseholdInviteSummary {
@@ -29,8 +30,11 @@ export interface AccountBootstrap {
   savedIds: string[];
   skippedIds: string[];
   dynamicMeals: Meal[];
+  householdDynamicMeals: Meal[];
   householdSignals: Record<string, string[]>;
   recipeVisibility: Record<string, RecipeVisibility>;
   latestPlanIds: (string | null)[];
   pantryItems: PantryItem[];
+  householdLatestPlanIds: (string | null)[];
+  householdPantryItems: PantryItem[];
 }

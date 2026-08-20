@@ -99,6 +99,10 @@ export interface Preferences {
   allergies: Allergen[];
   dislikedIngredients: string[];
   categories: MealCategory[];
+  nutritionPreference?: NutritionPreference;
+  maximumCookingTime?: number;
+  personalDinnersPerWeek?: number;
+  strictDislikes?: boolean;
 }
 
 export interface HouseholdMember {
@@ -197,6 +201,10 @@ export const defaultPreferences: Preferences = {
   allergies: [],
   dislikedIngredients: [],
   categories: [],
+  nutritionPreference: "Balanced",
+  maximumCookingTime: 45,
+  personalDinnersPerWeek: 7,
+  strictDislikes: true,
 };
 
 export const defaultHousehold: Household = {

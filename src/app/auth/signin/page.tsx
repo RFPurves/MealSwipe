@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { SignInCard } from "@/components/sign-in-card";
 
 export default async function SignInPage() {
-  if (await auth()) redirect("/account");
+  if (await auth()) redirect("/");
   return <SignInCard
     google={Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET)}
     email={Boolean(process.env.AUTH_RESEND_KEY && process.env.AUTH_EMAIL_FROM)}

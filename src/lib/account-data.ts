@@ -6,8 +6,8 @@ import type { AccountBootstrap, AccountUser, HouseholdInviteSummary } from "@/ty
 import type { Allergen, DietaryPreference, Meal, MealCategory, NutritionPreference, Preferences } from "@/types";
 import { pantryItemFromRow } from "@/lib/pantry";
 
-function publicUser(user: { id: string; name: string | null; username: string | null; image: string | null }): AccountUser {
-  return { id: user.id, name: user.name ?? user.username ?? "MealSwipe member", username: user.username, image: user.image };
+function publicUser(user: { id: string; name: string | null; username: string | null; image: string | null; profileCompleted?: boolean }): AccountUser {
+  return { id: user.id, name: user.name ?? user.username ?? "MealSwipe member", username: user.username, image: user.image, profileCompleted: user.profileCompleted ?? true };
 }
 
 function preferencesFromRow(row: {
@@ -15,12 +15,20 @@ function preferencesFromRow(row: {
   allergies: string[];
   dislikedIngredients: string[];
   cookingCategories: string[];
+  nutritionPreference: string;
+  maximumCookingTime: number;
+  personalDinnersPerWeek: number;
+  strictDislikes: boolean;
 } | null): Preferences {
   return {
     dietary: (row?.dietaryPreference ?? "Everything") as DietaryPreference,
     allergies: (row?.allergies ?? []) as Allergen[],
     dislikedIngredients: row?.dislikedIngredients ?? [],
     categories: (row?.cookingCategories ?? []) as MealCategory[],
+    nutritionPreference: (row?.nutritionPreference ?? "Balanced") as NutritionPreference,
+    maximumCookingTime: row?.maximumCookingTime ?? 45,
+    personalDinnersPerWeek: row?.personalDinnersPerWeek ?? 7,
+    strictDislikes: row?.strictDislikes ?? true,
   };
 }
 
@@ -53,6 +61,8 @@ export async function getAccountBootstrap(userId: string): Promise<AccountBootst
     where: { id: userId },
     include: {
       preference: true,
+      personalPantryItems: { orderBy: [{ displayName: "asc" }, { createdAt: "asc" }] },
+      personalWeeklyPlans: { orderBy: { updatedAt: "desc" }, take: 1 },
       membership: {
         include: {
           household: {
@@ -107,9 +117,12 @@ export async function getAccountBootstrap(userId: string): Promise<AccountBootst
     if (handle) householdSignals[swipe.recipeIdentifier] = [...(householdSignals[swipe.recipeIdentifier] ?? []), handle];
   }
 
-  const dynamicMeals = recipes.map((recipe) => mealFromJson(recipe.recipe)).filter((meal): meal is Meal => Boolean(meal));
+  const ownRecipes = recipes.filter((recipe) => recipe.userId === user.id);
+  const dynamicMeals = ownRecipes.map((recipe) => mealFromJson(recipe.recipe)).filter((meal): meal is Meal => Boolean(meal));
+  const householdDynamicMeals = recipes.map((recipe) => mealFromJson(recipe.recipe)).filter((meal): meal is Meal => Boolean(meal));
   const household = user.membership?.household;
-  const latestPlan = household?.weeklyPlans[0]?.selectedRecipes;
+  const latestPersonalPlan = user.personalWeeklyPlans[0]?.selectedRecipes;
+  const latestHouseholdPlan = household?.weeklyPlans[0]?.selectedRecipes;
 
   return {
     user: publicUser(user),
@@ -140,9 +153,12 @@ export async function getAccountBootstrap(userId: string): Promise<AccountBootst
     savedIds: ownLatest.filter((swipe) => swipe.action === "LIKED" || swipe.action === "SAVED").map((swipe) => swipe.recipeIdentifier),
     skippedIds: ownLatest.filter((swipe) => swipe.action === "SKIPPED").map((swipe) => swipe.recipeIdentifier),
     dynamicMeals,
+    householdDynamicMeals,
     householdSignals,
     recipeVisibility: Object.fromEntries(recipes.filter((recipe) => recipe.userId === user.id).map((recipe) => [recipe.recipeIdentifier, recipe.visibility])),
-    latestPlanIds: Array.isArray(latestPlan) ? latestPlan.map((id) => typeof id === "string" ? id : null) : [],
-    pantryItems: household?.pantryItems.map(pantryItemFromRow) ?? [],
+    latestPlanIds: Array.isArray(latestPersonalPlan) ? latestPersonalPlan.map((id) => typeof id === "string" ? id : null) : [],
+    pantryItems: user.personalPantryItems.map(pantryItemFromRow),
+    householdLatestPlanIds: Array.isArray(latestHouseholdPlan) ? latestHouseholdPlan.map((id) => typeof id === "string" ? id : null) : [],
+    householdPantryItems: household?.pantryItems.map(pantryItemFromRow) ?? [],
   };
 }

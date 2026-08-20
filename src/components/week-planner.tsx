@@ -29,7 +29,7 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
-import { useMealApp } from "@/components/app-provider";
+import { useMealApp, type PlanningScope } from "@/components/app-provider";
 import { mealById } from "@/data/meals";
 import {
   buildShoppingList,
@@ -76,21 +76,24 @@ interface SpeechRecognitionLike {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
-export function WeekPlanner() {
+export function WeekPlanner({ scope = "personal" }: { scope?: PlanningScope }) {
   const app = useMealApp();
-  const {
-    preferences,
-    household,
-    savedIds,
-    weeklyPlanIds,
-    planRevision,
-    dynamicMeals,
-    checkedShoppingItems,
-    optimizationObjective,
-    pantryItems,
-    usePantryFirst,
-    lastPlanChange,
-  } = app;
+  const isHousehold = scope === "household";
+  const preferences = app.preferences;
+  const household = useMemo(() => isHousehold ? app.household : ({
+    name: "My plan",
+    members: [{ id: app.account?.user.id ?? "me", name: app.account?.user.name ?? "You", username: app.account?.user.username ?? undefined, dietary: preferences.dietary, allergies: preferences.allergies, dislikedIngredients: preferences.dislikedIngredients, nutritionPreference: preferences.nutritionPreference ?? "Balanced" }],
+    settings: { adults: 1, children: 0, dinnersPerWeek: preferences.personalDinnersPerWeek ?? 7, maximumCookingTime: preferences.maximumCookingTime ?? 45 },
+  }), [app.account?.user, app.household, isHousehold, preferences]);
+  const savedIds = app.savedIds;
+  const weeklyPlanIds = isHousehold ? app.householdWeeklyPlanIds : app.weeklyPlanIds;
+  const planRevision = isHousehold ? app.householdPlanRevision : app.planRevision;
+  const dynamicMeals = isHousehold ? app.householdDynamicMeals : app.dynamicMeals;
+  const checkedShoppingItems = isHousehold ? app.householdCheckedShoppingItems : app.checkedShoppingItems;
+  const optimizationObjective = isHousehold ? app.householdOptimizationObjective : app.optimizationObjective;
+  const pantryItems = isHousehold ? app.householdPantryItems : app.pantryItems;
+  const usePantryFirst = isHousehold ? app.householdUsePantryFirst : app.usePantryFirst;
+  const lastPlanChange = isHousehold ? app.householdLastPlanChange : app.lastPlanChange;
   const [isGenerating, setIsGenerating] = useState(false);
   const [replacingDay, setReplacingDay] = useState<number | null>(null);
   const [editorDay, setEditorDay] = useState<number | null>(null);
@@ -127,6 +130,7 @@ export function WeekPlanner() {
     const meal = resolveMeal(weeklyPlanIds[index]);
     return meal && mealIsSafeForHousehold(meal, household) ? meal : null;
   }), [household, resolveMeal, weeklyPlanIds]);
+  const incompatiblePlanCount = useMemo(() => weeklyPlanIds.filter((id) => { const meal = resolveMeal(id); return meal && !mealIsSafeForHousehold(meal, household); }).length, [household, resolveMeal, weeklyPlanIds]);
   const planEntries = useMemo(() => planSlots.flatMap((meal, index) => meal ? [{ meal, day: WEEKDAYS[index] }] : []), [planSlots]);
   const planMeals = useMemo(() => planEntries.map((entry) => entry.meal), [planEntries]);
   const planDays = useMemo(() => planEntries.map((entry) => entry.day), [planEntries]);
@@ -147,15 +151,15 @@ export function WeekPlanner() {
     generationTimer.current = window.setTimeout(() => {
       void (async () => {
         let mealIds: (string | null)[] | null = null;
-        if (app.account?.household?.id && !app.demoMode) {
+        if (app.account && (!isHousehold || app.account.household?.id) && !app.demoMode) {
           try {
-            const response = await fetch("/api/households/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ objective, usePantryFirst }) });
+            const response = await fetch(isHousehold ? "/api/households/plan" : "/api/account/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ objective, usePantryFirst }) });
             const data = await response.json() as { planIds?: (string | null)[] };
             if (response.ok && data.planIds) mealIds = data.planIds;
           } catch { /* Fall back to the same deterministic on-device planner. */ }
         }
-        mealIds ??= generateWeeklyPlan(savedIds, preferences, planRevision + 1, dynamicMeals, { household, householdLikes: app.householdSignals, objective, pantryItems, usePantryFirst });
-        app.saveWeeklyPlan(mealIds, summary);
+        mealIds ??= generateWeeklyPlan(savedIds, preferences, planRevision + 1, dynamicMeals, { household, householdLikes: isHousehold ? app.householdSignals : {}, objective, pantryItems, usePantryFirst });
+        app.saveWeeklyPlan(mealIds, summary, scope);
         setIsGenerating(false);
         generationTimer.current = undefined;
       })();
@@ -166,8 +170,8 @@ export function WeekPlanner() {
   const replaceDay = (index: number, constraint?: PlannerAction["constraint"], summary?: string) => {
     if (replacingDay !== null || planMeals.length === 0) return false;
     setReplacingDay(index);
-    const replacement = findReplacementMeal(replacementPool(), index, savedIds, preferences, planRevision + 1, dynamicMeals, { household, householdLikes: app.householdSignals, objective: optimizationObjective, pantryItems, usePantryFirst, constraint });
-    if (replacement) app.replaceWeeklyMeal(index, replacement.id, summary ?? `${WEEKDAYS[index]} replaced with ${replacement.title}`);
+    const replacement = findReplacementMeal(replacementPool(), index, savedIds, preferences, planRevision + 1, dynamicMeals, { household, householdLikes: isHousehold ? app.householdSignals : {}, objective: optimizationObjective, pantryItems, usePantryFirst, constraint });
+    if (replacement) app.replaceWeeklyMeal(index, replacement.id, summary ?? `${WEEKDAYS[index]} replaced with ${replacement.title}`, scope);
     window.setTimeout(() => setReplacingDay(null), 260);
     return Boolean(replacement);
   };
@@ -179,8 +183,8 @@ export function WeekPlanner() {
     const combined = createCombinedMeal(mainMeal, sideMeal, servings);
     const safety = mealSafetyForHousehold(combined, household);
     if (!safety.safe) return `Combination blocked because it conflicts with ${safety.conflicts.join(", ")}.`;
-    app.addDynamicMeal(combined);
-    app.replaceWeeklyMeal(targetIndex, combined.id, `${WEEKDAYS[targetIndex]} is now ${combined.title}`);
+    app.addDynamicMeal(combined, scope);
+    app.replaceWeeklyMeal(targetIndex, combined.id, `${WEEKDAYS[targetIndex]} is now ${combined.title}`, scope);
     return `${WEEKDAYS[targetIndex]} updated to ${combined.title}. Shopping and optimization metrics were recalculated.`;
   };
 
@@ -189,12 +193,12 @@ export function WeekPlanner() {
     for (const action of actions) {
       if (action.type === "swapDays") {
         const first = dayIndex(action.sourceDay); const second = dayIndex(action.destinationDay);
-        if (first >= 0 && second >= 0) app.swapWeeklyDays(first, second, `${WEEKDAYS[first]} and ${WEEKDAYS[second]} swapped`);
+        if (first >= 0 && second >= 0) app.swapWeeklyDays(first, second, `${WEEKDAYS[first]} and ${WEEKDAYS[second]} swapped`, scope);
       } else if (action.type === "moveMeal") {
         const from = dayIndex(action.sourceDay); const to = dayIndex(action.destinationDay);
-        if (from >= 0 && to >= 0) app.moveWeeklyMeal(from, to, `${WEEKDAYS[from]}'s meal moved to ${WEEKDAYS[to]}`);
+        if (from >= 0 && to >= 0) app.moveWeeklyMeal(from, to, `${WEEKDAYS[from]}'s meal moved to ${WEEKDAYS[to]}`, scope);
       } else if (action.type === "removeMeal") {
-        const target = dayIndex(action.targetDay); if (target >= 0) app.removeWeeklyMeal(target, `${WEEKDAYS[target]} left open`);
+        const target = dayIndex(action.targetDay); if (target >= 0) app.removeWeeklyMeal(target, `${WEEKDAYS[target]} left open`, scope);
       } else if (action.type === "replaceMeal" || action.type === "changeMealConstraint") {
         const target = dayIndex(action.targetDay);
         if (target >= 0 && !replaceDay(target, action.constraint)) result = `No safe meal matched that request for ${WEEKDAYS[target]}. Nothing changed.`;
@@ -202,7 +206,7 @@ export function WeekPlanner() {
         const main = dayIndex(action.mainFromDay); const side = dayIndex(action.sideFromDay); const target = dayIndex(action.targetDay);
         if (main >= 0 && side >= 0) result = combineDays(main, side, target >= 0 ? target : main);
       } else if (action.type === "optimizeWeek" && action.objective) {
-        app.setOptimizationObjective(action.objective);
+        app.setOptimizationObjective(action.objective, scope);
         generate(action.objective, `Week optimized for ${objectiveLabels[action.objective]}`);
       }
     }
@@ -242,9 +246,9 @@ export function WeekPlanner() {
     const names = pantryInput.split(",").map((item) => item.trim()).filter(Boolean);
     if (!names.length) return;
     setIsSavingPantry(true); setPantryStatus(null);
-    const saved = await app.addPantryItems(names.map((name) => ({ name, source: "manual", confirmed: true })));
+    const saved = await app.addPantryItems(names.map((name) => ({ name, source: "manual", confirmed: true })), scope);
     if (saved) setPantryInput("");
-    else setPantryStatus("We couldn't update the shared pantry. Please try again.");
+    else setPantryStatus(`We couldn't update ${isHousehold ? "the shared" : "your"} pantry. Please try again.`);
     setIsSavingPantry(false);
   };
 
@@ -270,7 +274,7 @@ export function WeekPlanner() {
       name: pantryDraftName.trim(),
       quantity,
       unit: pantryDraftUnit.trim() || null,
-    });
+    }, scope);
     if (saved) setEditingPantryId(null);
     else setPantryStatus("We couldn't save that pantry change. Check for a duplicate name and try again.");
     setIsSavingPantry(false);
@@ -278,18 +282,18 @@ export function WeekPlanner() {
 
   const confirmPhotoItems = async () => {
     setIsSavingPantry(true); setPantryStatus(null);
-    const saved = await app.addPantryItems(photoItems.map((name) => ({ name, source: "ai-detected", confirmed: true })));
+    const saved = await app.addPantryItems(photoItems.map((name) => ({ name, source: "ai-detected", confirmed: true })), scope);
     if (saved) { setPhotoItems([]); setPhotoNote(null); }
-    else setPantryStatus("We couldn't add the confirmed items to the shared pantry.");
+    else setPantryStatus(`We couldn't add the confirmed items to ${isHousehold ? "the shared" : "your"} pantry.`);
     setIsSavingPantry(false);
   };
 
   const removePantryItem = async (id: string) => {
     setIsSavingPantry(true); setPantryStatus(null);
-    const removed = await app.removePantryItem(id);
+    const removed = await app.removePantryItem(id, scope);
     if (removed) {
       if (editingPantryId === id) setEditingPantryId(null);
-    } else setPantryStatus("We couldn't remove that shared pantry item. Please try again.");
+    } else setPantryStatus(`We couldn't remove that ${isHousehold ? "shared " : ""}pantry item. Please try again.`);
     setIsSavingPantry(false);
   };
 
@@ -308,16 +312,20 @@ export function WeekPlanner() {
     finally { setIsAnalyzingPhoto(false); event.target.value = ""; }
   };
 
+  if (isHousehold && !app.account?.household) {
+    return <section className="week-planner"><div className="plan-intro-card"><p className="eyebrow">Optional collaboration</p><h2>Create or join a household first.</h2><p className="plan-intro-copy">Your personal plan remains available in My Week. Household plans only begin after an accepted invitation.</p><Link className="generate-week-button" href="/household">Open Household</Link></div></section>;
+  }
+
   if (planMeals.length === 0) {
     return (
       <section className="week-planner">
-        <div className="household-summary-card"><div><Users size={19} /><span><strong>{household.name}</strong>{household.members.map((member) => member.name).join(" + ")}</span></div><b><ShieldCheck size={14} /> {household.members.length} profile{household.members.length === 1 ? "" : "s"}</b></div>
+        <div className="household-summary-card"><div><Users size={19} /><span><strong>{isHousehold ? household.name : "My plan"}</strong>{isHousehold ? household.members.map((member) => member.name).join(" + ") : "Personal preferences and pantry"}</span></div><b><ShieldCheck size={14} /> {isHousehold ? `${household.members.length} profiles` : "Private"}</b></div>
         <div className="plan-intro-card">
           <div className="plan-intro-art" aria-hidden="true"><div className="plan-orbit plan-orbit-one" /><div className="plan-orbit plan-orbit-two" /><span className="plan-spark plan-spark-one"><Sparkles size={18} /></span><span className="plan-spark plan-spark-two"><Sparkles size={13} /></span><div className="plan-calendar-icon"><CalendarDays size={34} /><span>{household.settings.dinnersPerWeek}</span></div></div>
           <p className="eyebrow">Your smart menu</p><h2>A week designed to work together.</h2>
-          <p className="plan-intro-copy">We&apos;ll start with your favourites, enforce every household restriction, and choose meals that share ingredients.</p>
+          <p className="plan-intro-copy">We&apos;ll start with {isHousehold ? "everyone's eligible likes, enforce every household restriction" : "your favourites and personal restrictions"}, and choose meals that share ingredients.</p>
           <div className="plan-source-row"><div><Heart size={17} fill="currentColor" /><span><strong>{safeSavedCount}</strong> safe favourite{safeSavedCount === 1 ? "" : "s"}</span></div><div><WandSparkles size={17} /><span><strong>{Math.max(0, household.settings.dinnersPerWeek - safeSavedCount)}</strong> smart picks</span></div></div>
-          {safeMeals.length ? <button className="generate-week-button" type="button" onClick={() => generate()} disabled={isGenerating}>{isGenerating ? <><RefreshCw className="spin" size={20} /> Building your week…</> : <><Sparkles size={20} /> Generate My Week</>}</button> : <div className="no-safe-meals"><strong>No safe matches available</strong><p>Your household restrictions exclude every starter meal.</p><Link href="/">Adjust household</Link></div>}
+          {safeMeals.length ? <button className="generate-week-button" type="button" onClick={() => generate()} disabled={isGenerating}>{isGenerating ? <><RefreshCw className="spin" size={20} /> Building your week…</> : <><Sparkles size={20} /> Generate {isHousehold ? "Shared" : "My"} Week</>}</button> : <div className="no-safe-meals"><strong>No safe matches available</strong><p>Your current restrictions exclude every starter meal.</p><Link href="/account">Adjust profile</Link></div>}
           <p className="plan-safety-note"><Check size={13} /> Allergies and dietary restrictions are always hard filters.</p>
         </div>
       </section>
@@ -326,7 +334,8 @@ export function WeekPlanner() {
 
   return (
     <section className="week-planner week-planner-generated">
-      <div className="household-summary-card"><div><Users size={19} /><span><strong>{household.name}</strong>{household.members.map((member) => member.name).join(" + ")}</span></div><b><ShieldCheck size={14} /> Safety checked</b></div>
+      <div className="household-summary-card"><div><Users size={19} /><span><strong>{isHousehold ? household.name : "My plan"}</strong>{isHousehold ? household.members.map((member) => member.name).join(" + ") : "Personal preferences and pantry"}</span></div><b><ShieldCheck size={14} /> Safety checked</b></div>
+      {incompatiblePlanCount ? <div className="account-message" role="alert"><ShieldCheck size={15} /> {incompatiblePlanCount} existing meal{incompatiblePlanCount === 1 ? " may" : "s may"} no longer match {isHousehold ? "a household member's" : "your"} updated restrictions. Unsafe slots were hidden.</div> : null}
 
       <section className="planner-assistant-card">
         <header><div className="assistant-mark"><Sparkles size={19} /></div><div><p className="eyebrow">MealSwipe planner</p><h2>Change the week with your voice</h2></div><button type="button" className={`mic-button${isListening ? " is-listening" : ""}`} onClick={isListening ? () => recognitionRef.current?.stop() : startListening} aria-label={isListening ? "Stop listening" : "Speak to the planner"}>{isListening ? <MicOff size={20} /> : <Mic size={20} />}</button></header>
@@ -337,7 +346,7 @@ export function WeekPlanner() {
 
       <section className="optimization-control">
         <div><p className="eyebrow">Optimize for</p><h2>{objectiveLabels[optimizationObjective]}</h2></div>
-        <label><span className="sr-only">Optimization objective</span><select value={optimizationObjective} onChange={(event) => { const value = event.target.value as OptimizationObjective; app.setOptimizationObjective(value); generate(value, `Week optimized for ${objectiveLabels[value]}`); }}>{Object.entries(objectiveLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><ChevronDown size={15} /></label>
+        <label><span className="sr-only">Optimization objective</span><select value={optimizationObjective} onChange={(event) => { const value = event.target.value as OptimizationObjective; app.setOptimizationObjective(value, scope); generate(value, `Week optimized for ${objectiveLabels[value]}`); }}>{Object.entries(objectiveLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><ChevronDown size={15} /></label>
         {optimizationObjective === "lowest-cost" ? <p>Cost uses ingredient and complexity estimates—not live grocery prices.</p> : null}
       </section>
 
@@ -364,7 +373,7 @@ export function WeekPlanner() {
               <article className={`day-meal-card${replacingDay === index ? " is-replacing" : ""}`}>
                 <div className="day-meal-image"><Image src={meal.image} alt={meal.title} fill loading={index === 0 ? "eager" : "lazy"} sizes="(max-width: 760px) 116px, 132px" /><span>{index + 1}</span></div>
                 <div className="day-meal-content">
-                  <div className="day-label-row"><p>{WEEKDAYS[index]}</p>{(app.householdSignals[meal.id]?.length ?? 0) >= 2 ? <span><Heart size={10} fill="currentColor" /> Liked by both of you</span> : app.householdSignals[meal.id]?.length ? <span><Heart size={10} fill="currentColor" /> @{app.householdSignals[meal.id][0]} liked this</span> : savedSet.has(meal.id) ? <span><Heart size={10} fill="currentColor" /> Liked</span> : <span className="smart-pick"><Sparkles size={10} /> Smart pick</span>}</div>
+              <div className="day-label-row"><p>{WEEKDAYS[index]}</p>{isHousehold && (app.householdSignals[meal.id]?.length ?? 0) >= 2 ? <span><Heart size={10} fill="currentColor" /> Liked by multiple members</span> : isHousehold && app.householdSignals[meal.id]?.length ? <span><Heart size={10} fill="currentColor" /> @{app.householdSignals[meal.id][0]} liked this</span> : savedSet.has(meal.id) ? <span><Heart size={10} fill="currentColor" /> Liked</span> : <span className="smart-pick"><Sparkles size={10} /> Smart pick</span>}</div>
                   <h3>{meal.title}</h3><p className="day-time"><Clock3 size={13} /> {meal.timeMinutes} min · {meal.proteinGrams}g protein</p>
                   <div className="day-ingredients">{meal.ingredients.slice(0, 3).map((ingredient) => <span key={ingredient.name}>{ingredient.name}</span>)}</div>
                   <div className="day-card-bottom"><div className="dietary-tags">{meal.dietary.slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="day-action-buttons"><button type="button" onClick={() => replaceDay(index)}><Repeat2 size={14} /> Replace</button><button type="button" onClick={() => { setEditorDay(editorDay === index ? null : index); setEditorMode(null); }}><ChevronDown size={14} /> Edit</button></div></div>
@@ -382,7 +391,7 @@ export function WeekPlanner() {
       </div>
 
       <section className="pantry-card">
-        <header><div className="pantry-icon"><PackageCheck size={22} /></div><div><p className="eyebrow">What do I already have?</p><h2>Pantry & fridge</h2><p className="pantry-shared-label"><Users size={11} /> Shared with your household</p></div><label className="pantry-toggle"><input type="checkbox" checked={usePantryFirst} onChange={(event) => app.setUsePantryFirst(event.target.checked)} /><span>Use these first</span></label></header>
+        <header><div className="pantry-icon"><PackageCheck size={22} /></div><div><p className="eyebrow">{isHousehold ? "What do we already have?" : "What do I already have?"}</p><h2>{isHousehold ? "Shared pantry" : "My pantry & fridge"}</h2><p className="pantry-shared-label"><Users size={11} /> {isHousehold ? "Shared with your household" : "Private to your account"}</p></div><label className="pantry-toggle"><input type="checkbox" checked={usePantryFirst} onChange={(event) => app.setUsePantryFirst(event.target.checked, scope)} /><span>Use these first</span></label></header>
         <div className="pantry-entry"><input aria-label="Add pantry items" value={pantryInput} onChange={(event) => setPantryInput(event.target.value)} placeholder="eggs, feta, spinach…" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addPantry(); } }} /><button type="button" onClick={() => void addPantry()} disabled={isSavingPantry}><Plus size={17} /> Add</button><label className="photo-upload"><input type="file" accept="image/*" onChange={analyzePhoto} disabled={isAnalyzingPhoto || isSavingPantry} /><ImagePlus size={17} /><span>{isAnalyzingPhoto ? "Looking…" : "Photo"}</span></label></div>
         {pantryItems.length ? <div className="pantry-chips">{pantryItems.map((item) => <span key={item.id}><span>{item.name}{item.quantity !== null && item.quantity !== undefined ? ` · ${item.quantity}${item.unit ? ` ${item.unit}` : ""}` : ""}</span><button type="button" onClick={() => beginPantryEdit(item.id)} aria-label={`Edit ${item.name}`} disabled={isSavingPantry}><Pencil size={11} /></button><button type="button" onClick={() => void removePantryItem(item.id)} aria-label={`Remove ${item.name}`} disabled={isSavingPantry}><X size={12} /></button></span>)}</div> : <p className="pantry-empty">Add ingredients to prioritize them and keep them off the shopping list.</p>}
         {editingPantryId ? <div className="pantry-edit"><input aria-label="Pantry item name" value={pantryDraftName} onChange={(event) => setPantryDraftName(event.target.value)} /><input aria-label="Pantry item quantity" type="number" min="0" step="any" placeholder="Qty" value={pantryDraftQuantity} onChange={(event) => setPantryDraftQuantity(event.target.value)} /><input aria-label="Pantry item unit" placeholder="Unit" value={pantryDraftUnit} onChange={(event) => setPantryDraftUnit(event.target.value)} /><button type="button" onClick={() => void savePantryEdit()} disabled={isSavingPantry}>Save</button><button type="button" onClick={() => setEditingPantryId(null)}>Cancel</button></div> : null}
@@ -393,8 +402,8 @@ export function WeekPlanner() {
       <section className="shopping-list-card">
         <header className="shopping-header"><div className="shopping-icon"><ShoppingBasket size={23} /></div><div><p className="eyebrow">Live list for {planMeals.length} dinners</p><h2>Shopping list</h2></div><span>{checkedItems.size}/{neededShoppingItems.length}</span></header>
         <div className="shopping-progress"><span style={{ width: `${neededShoppingItems.length ? (checkedItems.size / neededShoppingItems.length) * 100 : 0}%` }} /></div>
-        <p className="shopping-summary">Matching units are combined. Shared household pantry items stay visible but are removed from what you need to buy.</p>
-        <div className="shopping-groups">{groupedShopping.map(({ category, items }) => <section className="shopping-group" key={category}><header><span>{categoryIcons[category]}</span><h3>{category}</h3><small>{items.length}</small></header><div>{items.map((item) => { const checked = checkedItems.has(item.name); const amount = formatShoppingAmount(item); return <button className={`shopping-item${checked ? " is-checked" : ""}${item.mealCount > 1 ? " is-shared" : ""}${item.inPantry ? " is-pantry" : ""}`} key={item.name} type="button" aria-pressed={checked} onClick={() => !item.inPantry && app.toggleShoppingItem(item.name)}><span className="shopping-check">{item.inPantry ? <PackageCheck size={13} /> : checked ? <Check size={13} /> : null}</span><span className="shopping-item-copy"><strong>{titleCase(item.name)}</strong><small>{item.inPantry ? "Already in your pantry" : `${amount ? `${amount} · ` : ""}Used in ${item.usedIn.join(" + ")}`}</small></span>{item.inPantry ? <b>PANTRY</b> : item.mealCount > 1 ? <b>REUSE</b> : null}</button>; })}</div></section>)}</div>
+        <p className="shopping-summary">Matching units are combined. {isHousehold ? "Shared household" : "Personal"} pantry items stay visible but are removed from what you need to buy.</p>
+        <div className="shopping-groups">{groupedShopping.map(({ category, items }) => <section className="shopping-group" key={category}><header><span>{categoryIcons[category]}</span><h3>{category}</h3><small>{items.length}</small></header><div>{items.map((item) => { const checked = checkedItems.has(item.name); const amount = formatShoppingAmount(item); return <button className={`shopping-item${checked ? " is-checked" : ""}${item.mealCount > 1 ? " is-shared" : ""}${item.inPantry ? " is-pantry" : ""}`} key={item.name} type="button" aria-pressed={checked} onClick={() => !item.inPantry && app.toggleShoppingItem(item.name, scope)}><span className="shopping-check">{item.inPantry ? <PackageCheck size={13} /> : checked ? <Check size={13} /> : null}</span><span className="shopping-item-copy"><strong>{titleCase(item.name)}</strong><small>{item.inPantry ? "Already in your pantry" : `${amount ? `${amount} · ` : ""}Used in ${item.usedIn.join(" + ")}`}</small></span>{item.inPantry ? <b>PANTRY</b> : item.mealCount > 1 ? <b>REUSE</b> : null}</button>; })}</div></section>)}</div>
       </section>
     </section>
   );

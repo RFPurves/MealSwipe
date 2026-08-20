@@ -24,12 +24,12 @@ export async function POST(request: Request) {
     const account = await getAccountBootstrap(user.id);
     if (!account.household?.id) throw new ApiError(409, "Create or join a household before generating a shared week.");
     const objective = typeof body.objective === "string" && objectives.has(body.objective) ? body.objective as OptimizationObjective : "balanced";
-    const pantryItems = account.pantryItems;
+    const pantryItems = account.householdPantryItems;
     const planIds = generateWeeklyPlan(
       account.savedIds,
       account.preferences,
       Date.now(),
-      account.dynamicMeals,
+      account.householdDynamicMeals,
       { household: account.household, householdLikes: account.householdSignals, objective, pantryItems, usePantryFirst: body.usePantryFirst === true },
     );
     const weekStart = monday();

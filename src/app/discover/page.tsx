@@ -9,7 +9,7 @@ export default function DiscoverPage() {
       eyebrow="Discover food visually"
       title="What looks good?"
       action={
-        <Link className="header-action" href="/" aria-label="Edit meal preferences">
+        <Link className="header-action" href="/account" aria-label="Edit meal preferences">
           <SlidersHorizontal size={19} />
         </Link>
       }
