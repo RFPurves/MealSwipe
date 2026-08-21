@@ -1,6 +1,7 @@
 import { meals } from "@/data/meals";
 import { mealIsSafe, mealIsSafeForHousehold, mealMatchesCategories } from "@/lib/meal-safety";
-import { canSubtractPantryQuantity, normalizePantryName, normalizePantryUnit, pantryMatch } from "@/lib/pantry";
+import { normalizePantryName, normalizePantryUnit, pantryMatch } from "@/lib/pantry";
+import { formatMetricQuantity, metricQuantity } from "@/lib/metric";
 import type {
   Household,
   Meal,
@@ -228,10 +229,6 @@ function shoppingCategoryFor(name: string): ShoppingCategory {
   return "Other";
 }
 
-function normalizedUnit(unit: string) {
-  return normalizePantryUnit(unit);
-}
-
 export function buildShoppingList(
   planMeals: Meal[],
   pantryItems: PantryItem[] = [],
@@ -240,12 +237,13 @@ export function buildShoppingList(
   const combined = new Map<string, ShoppingItem & { units: Set<string>; amountTotal: number }>();
   planMeals.forEach((meal, mealIndex) => meal.ingredients.forEach((ingredient) => {
     const key = ingredientKey(ingredient.name);
-    const unit = normalizedUnit(ingredient.unit);
+    const metric = metricQuantity(ingredient.amount, ingredient.unit);
+    const unit = metric.unit;
     const existing = combined.get(key);
     if (existing) {
       existing.mealCount += 1;
       existing.units.add(unit);
-      existing.amountTotal += ingredient.amount;
+      existing.amountTotal += metric.amount;
       if (!existing.usedIn.includes(days[mealIndex])) existing.usedIn.push(days[mealIndex]);
       return;
     }
@@ -254,7 +252,7 @@ export function buildShoppingList(
       category: shoppingCategoryFor(ingredient.name),
       mealCount: 1,
       units: new Set([unit]),
-      amountTotal: ingredient.amount,
+      amountTotal: metric.amount,
       usedIn: [days[mealIndex]],
       inPantry: false,
     });
@@ -267,13 +265,18 @@ export function buildShoppingList(
         (pantryItem.quantity === undefined || pantryItem.quantity === null) && !normalizePantryUnit(pantryItem.unit),
       );
       const subtractable = unit
-        ? matching.filter((pantryItem) => canSubtractPantryQuantity(pantryItem, item.name, unit))
+        ? matching.filter((pantryItem) => pantryItem.quantity !== undefined
+          && pantryItem.quantity !== null
+          && normalizePantryName(pantryItem.name) === normalizePantryName(item.name)
+          && metricQuantity(pantryItem.quantity, pantryItem.unit ?? "").unit === unit)
         : [];
-      const pantryQuantity = subtractable.reduce((total, pantryItem) => total + (pantryItem.quantity ?? 0), 0);
+      const pantryQuantity = subtractable.reduce((total, pantryItem) => total + metricQuantity(pantryItem.quantity ?? 0, pantryItem.unit ?? "").amount, 0);
       const inPantry = unquantifiedCoverage || (pantryQuantity > 0 && pantryQuantity >= amountTotal);
       return {
         ...item,
-        amount: unit && !inPantry ? Math.max(0, amountTotal - pantryQuantity) : unit ? amountTotal : undefined,
+        amount: unit && !inPantry
+          ? metricQuantity(Math.max(0, amountTotal - pantryQuantity), unit).amount
+          : unit ? metricQuantity(amountTotal, unit).amount : undefined,
         unit,
         inPantry,
       };
@@ -283,9 +286,7 @@ export function buildShoppingList(
 
 export function formatShoppingAmount(item: ShoppingItem) {
   if (item.amount === undefined || !item.unit) return undefined;
-  const amount = Number.isInteger(item.amount) ? item.amount.toString() : item.amount.toFixed(1).replace(/\.0$/, "");
-  if (item.unit === "pc") return `${amount} ${item.amount === 1 ? "piece" : "pieces"}`;
-  return `${amount} ${item.unit}`;
+  return formatMetricQuantity(item.amount, item.unit);
 }
 
 function cleanTitlePart(meal: Meal, kind: "main" | "side") {

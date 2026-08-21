@@ -8,6 +8,7 @@ import type {
   YouTubeMealCandidate,
 } from "@/types";
 import { mealIsSafe } from "@/lib/meal-safety";
+import { metricMeal } from "@/lib/metric";
 
 export const runtime = "nodejs";
 
@@ -46,7 +47,7 @@ function inferFallbackIngredients(candidate: YouTubeMealCandidate): Ingredient[]
   });
   add("onion", 1, "pc");
   add("garlic", 2, "cloves");
-  add("olive oil", 2, "tbsp");
+  add("olive oil", 30, "ml");
   add("salt and pepper", 1, "to taste");
   return result;
 }
@@ -192,7 +193,7 @@ export async function POST(request: Request) {
         input: [
           {
             role: "developer",
-            content: "Create a practical recipe using only evidence in the YouTube title and description. Never claim certainty when metadata is incomplete. Mark safety review-needed whenever allergens, dietary status, or core ingredients cannot be determined confidently. Mark blocked for any known user conflict. Quantities may be sensible estimates, and must be described as estimates by the application.",
+            content: "Create a practical recipe using only evidence in the YouTube title and description. Never claim certainty when metadata is incomplete. Mark safety review-needed whenever allergens, dietary status, or core ingredients cannot be determined confidently. Mark blocked for any known user conflict. Quantities may be sensible estimates, and must be described as estimates by the application. Use metric units only: grams (g), kilograms (kg), millilitres (ml), litres (l), and Celsius (°C). Natural count units such as pieces, cloves, slices, and bunches are allowed. Never use ounces, pounds, cups, teaspoons, tablespoons, fluid ounces, pints, quarts, gallons, or Fahrenheit.",
           },
           {
             role: "user",
@@ -237,7 +238,7 @@ export async function POST(request: Request) {
       "title" | "description" | "timeMinutes" | "calories" | "proteinGrams" | "servings" | "categories" |
       "dietary" | "allergens" | "ingredients" | "instructions" | "safetyStatus" | "safetyNotes"
     >;
-    const meal: Meal = {
+    const meal = metricMeal({
       ...recipe,
       id: fallback.id,
       image: candidate.thumbnail,
@@ -259,7 +260,7 @@ export async function POST(request: Request) {
       recipeStatus: "ready",
       safetyStatus: recipe.safetyStatus,
       safetyNotes: recipe.safetyNotes,
-    };
+    } as Meal);
     const hasKnownConflict = !mealIsSafe(
       { ...meal, safetyStatus: "safe" },
       preferences,

@@ -1,4 +1,5 @@
 import type { PantryItem } from "@/types";
+import { metricQuantity } from "@/lib/metric";
 
 const SINGULARS: Record<string, string> = {
   beans: "bean",
@@ -67,11 +68,13 @@ export function pantryMatch(item: PantryItem, ingredientName: string) {
 }
 
 export function canSubtractPantryQuantity(item: PantryItem, ingredientName: string, ingredientUnit?: string) {
+  const pantryQuantity = metricQuantity(item.quantity ?? 0, item.unit ?? "");
+  const ingredientQuantity = metricQuantity(0, ingredientUnit ?? "");
   return item.quantity !== undefined
     && item.quantity !== null
     && (item.normalizedName ?? normalizePantryName(item.name)) === normalizePantryName(ingredientName)
-    && Boolean(normalizePantryUnit(item.unit))
-    && normalizePantryUnit(item.unit) === normalizePantryUnit(ingredientUnit);
+    && Boolean(pantryQuantity.unit)
+    && pantryQuantity.unit === ingredientQuantity.unit;
 }
 
 export function pantryItemFromRow(row: {
@@ -86,12 +89,13 @@ export function pantryItemFromRow(row: {
     : row.source === "BARCODE" ? "barcode"
       : row.source === "AI_DETECTED" ? "ai-detected"
         : "manual";
+  const quantity = row.quantity !== null && row.unit ? metricQuantity(row.quantity, row.unit) : null;
   return {
     id: row.id,
     name: row.displayName,
     normalizedName: row.normalizedName,
-    quantity: row.quantity,
-    unit: row.unit,
+    quantity: quantity?.amount ?? row.quantity,
+    unit: quantity?.unit ?? row.unit,
     source,
     confirmed: true,
   };

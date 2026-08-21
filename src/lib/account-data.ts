@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import type { AccountBootstrap, AccountUser, HouseholdInviteSummary } from "@/types/account";
 import type { Allergen, DietaryPreference, Meal, MealCategory, NutritionPreference, Preferences } from "@/types";
 import { pantryItemFromRow } from "@/lib/pantry";
+import { metricMeal } from "@/lib/metric";
 
 function publicUser(user: { id: string; name: string | null; username: string | null; image: string | null; profileCompleted?: boolean }): AccountUser {
   return { id: user.id, name: user.name ?? user.username ?? "MealSwipe member", username: user.username, image: user.image, profileCompleted: user.profileCompleted ?? true };
@@ -35,7 +36,9 @@ function preferencesFromRow(row: {
 function mealFromJson(value: Prisma.JsonValue): Meal | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const candidate = value as unknown as Meal;
-  return typeof candidate.id === "string" && typeof candidate.title === "string" ? candidate : null;
+  return typeof candidate.id === "string" && typeof candidate.title === "string" && Array.isArray(candidate.ingredients)
+    ? metricMeal(candidate)
+    : null;
 }
 
 function inviteSummary(invite: {

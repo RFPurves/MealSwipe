@@ -2,6 +2,7 @@ import { PantryItemSource, Prisma } from "@prisma/client";
 import { ApiError, apiFailure, requireAuthUser } from "@/lib/auth-user";
 import { normalizePantryName, normalizePantryUnit, pantryItemFromRow } from "@/lib/pantry";
 import { prisma } from "@/lib/prisma";
+import { metricQuantity } from "@/lib/metric";
 
 const SOURCES = {
   manual: PantryItemSource.MANUAL,
@@ -32,6 +33,12 @@ function unit(value: unknown) {
   return normalizePantryUnit(value).slice(0, 32) || null;
 }
 
+function metricFields(quantityValue: number | null, unitValue: string | null) {
+  if (quantityValue === null || !unitValue) return { quantity: quantityValue, unit: unitValue };
+  const metric = metricQuantity(quantityValue, unitValue);
+  return { quantity: metric.amount, unit: metric.unit || null };
+}
+
 export async function GET() {
   try {
     const user = await requireAuthUser();
@@ -48,7 +55,8 @@ export async function POST(request: Request) {
     const existing = await prisma.personalPantryItem.findUnique({ where: { userId_normalizedName: { userId: user.id, normalizedName: name.normalizedName } } });
     if (existing) return Response.json({ item: pantryItemFromRow(existing), duplicate: true });
     const source = typeof body.source === "string" && body.source in SOURCES ? SOURCES[body.source as keyof typeof SOURCES] : PantryItemSource.MANUAL;
-    const item = await prisma.personalPantryItem.create({ data: { userId: user.id, ...name, quantity: quantity(body.quantity) ?? null, unit: unit(body.unit) ?? null, source } });
+    const measurements = metricFields(quantity(body.quantity) ?? null, unit(body.unit) ?? null);
+    const item = await prisma.personalPantryItem.create({ data: { userId: user.id, ...name, ...measurements, source } });
     return Response.json({ item: pantryItemFromRow(item), duplicate: false }, { status: 201 });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return Response.json({ message: "That item is already in your pantry." }, { status: 409 });
@@ -70,7 +78,10 @@ export async function PATCH(request: Request) {
     }
     const nextQuantity = quantity(body.quantity);
     const nextUnit = unit(body.unit);
-    const item = await prisma.personalPantryItem.update({ where: { id: existing.id }, data: { ...(name ?? {}), ...(nextQuantity !== undefined ? { quantity: nextQuantity } : {}), ...(nextUnit !== undefined ? { unit: nextUnit } : {}) } });
+    const measurements = nextQuantity !== undefined || nextUnit !== undefined
+      ? metricFields(nextQuantity === undefined ? existing.quantity : nextQuantity, nextUnit === undefined ? existing.unit : nextUnit)
+      : {};
+    const item = await prisma.personalPantryItem.update({ where: { id: existing.id }, data: { ...(name ?? {}), ...measurements } });
     return Response.json({ item: pantryItemFromRow(item) });
   } catch (error) { return apiFailure(error); }
 }

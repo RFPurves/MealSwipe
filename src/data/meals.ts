@@ -38,7 +38,7 @@ export const meals: Meal[] = [
     ingredients: [
       { name: "salmon fillet", amount: 320, unit: "g" },
       { name: "jasmine rice", amount: 160, unit: "g" },
-      { name: "white miso", amount: 2, unit: "tbsp" },
+      { name: "white miso", amount: 30, unit: "ml" },
       { name: "avocado", amount: 1, unit: "pc" },
       { name: "cucumber", amount: 1, unit: "pc" },
     ],
@@ -82,7 +82,7 @@ export const meals: Meal[] = [
       { name: "rice noodles", amount: 180, unit: "g" },
       { name: "bell pepper", amount: 1, unit: "pc" },
       { name: "lime", amount: 1, unit: "pc" },
-      { name: "soy sauce", amount: 2, unit: "tbsp" },
+      { name: "soy sauce", amount: 30, unit: "ml" },
     ],
   },
   {
@@ -186,7 +186,7 @@ export const meals: Meal[] = [
       { name: "chicken thigh", amount: 600, unit: "g" },
       { name: "chickpeas", amount: 400, unit: "g" },
       { name: "bell pepper", amount: 2, unit: "pcs" },
-      { name: "harissa", amount: 2, unit: "tbsp" },
+      { name: "harissa", amount: 30, unit: "ml" },
       { name: "greek yogurt", amount: 120, unit: "g" },
     ],
   },
@@ -229,7 +229,7 @@ export const meals: Meal[] = [
       { name: "sushi rice", amount: 160, unit: "g" },
       { name: "edamame", amount: 120, unit: "g" },
       { name: "avocado", amount: 1, unit: "pc" },
-      { name: "sriracha mayo", amount: 3, unit: "tbsp" },
+      { name: "sriracha mayo", amount: 45, unit: "ml" },
     ],
   },
   {
@@ -270,7 +270,7 @@ export const meals: Meal[] = [
       { name: "beef strips", amount: 350, unit: "g" },
       { name: "jasmine rice", amount: 160, unit: "g" },
       { name: "cucumber", amount: 1, unit: "pc" },
-      { name: "soy sauce", amount: 3, unit: "tbsp" },
+      { name: "soy sauce", amount: 45, unit: "ml" },
       { name: "spring onion", amount: 3, unit: "pcs" },
     ],
   },
@@ -290,7 +290,7 @@ export const meals: Meal[] = [
     ingredients: [
       { name: "cannellini beans", amount: 400, unit: "g" },
       { name: "sourdough", amount: 4, unit: "slices" },
-      { name: "basil pesto", amount: 3, unit: "tbsp" },
+      { name: "basil pesto", amount: 45, unit: "ml" },
       { name: "cherry tomato", amount: 200, unit: "g" },
       { name: "lemon", amount: 1, unit: "pc" },
     ],
@@ -334,7 +334,7 @@ export const meals: Meal[] = [
       { name: "bulgur", amount: 160, unit: "g" },
       { name: "cucumber", amount: 1, unit: "pc" },
       { name: "tomato", amount: 2, unit: "pcs" },
-      { name: "tahini", amount: 3, unit: "tbsp" },
+      { name: "tahini", amount: 45, unit: "ml" },
     ],
   },
   {
@@ -373,7 +373,7 @@ export const meals: Meal[] = [
     allergens: ["Nuts", "Dairy", "Gluten"],
     ingredients: [
       { name: "pizza base", amount: 2, unit: "pcs" },
-      { name: "basil pesto", amount: 4, unit: "tbsp" },
+      { name: "basil pesto", amount: 60, unit: "ml" },
       { name: "mozzarella", amount: 180, unit: "g" },
       { name: "zucchini", amount: 1, unit: "pc" },
       { name: "bell pepper", amount: 1, unit: "pc" },

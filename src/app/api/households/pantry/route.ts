@@ -2,6 +2,7 @@ import { PantryItemSource, Prisma } from "@prisma/client";
 import { ApiError, apiFailure, requireHouseholdMembership } from "@/lib/auth-user";
 import { normalizePantryName, normalizePantryUnit, pantryItemFromRow } from "@/lib/pantry";
 import { prisma } from "@/lib/prisma";
+import { metricQuantity } from "@/lib/metric";
 
 const SOURCE_BY_CLIENT = {
   manual: PantryItemSource.MANUAL,
@@ -35,6 +36,12 @@ function parseUnit(value: unknown) {
   return unit || null;
 }
 
+function metricFields(quantity: number | null, unit: string | null) {
+  if (quantity === null || !unit) return { quantity, unit };
+  const metric = metricQuantity(quantity, unit);
+  return { quantity: metric.amount, unit: metric.unit || null };
+}
+
 function parseSource(value: unknown) {
   if (value === undefined) return PantryItemSource.MANUAL;
   if (typeof value !== "string" || !(value in SOURCE_BY_CLIENT)) throw new ApiError(400, "Unknown pantry item source.");
@@ -61,6 +68,7 @@ export async function POST(request: Request) {
     const name = parseName(body.name);
     const quantity = parseQuantity(body.quantity);
     const unit = parseUnit(body.unit);
+    const measurements = metricFields(quantity ?? null, unit ?? null);
     const existing = await prisma.householdPantryItem.findUnique({
       where: { householdId_normalizedName: { householdId: membership.householdId, normalizedName: name.normalizedName } },
     });
@@ -70,8 +78,7 @@ export async function POST(request: Request) {
         householdId: membership.householdId,
         createdByUserId: user.id,
         ...name,
-        quantity: quantity ?? null,
-        unit: unit ?? null,
+        ...measurements,
         source: parseSource(body.source),
       },
     });
@@ -100,12 +107,14 @@ export async function PATCH(request: Request) {
     }
     const quantity = parseQuantity(body.quantity);
     const unit = parseUnit(body.unit);
+    const measurements = quantity !== undefined || unit !== undefined
+      ? metricFields(quantity === undefined ? existing.quantity : quantity, unit === undefined ? existing.unit : unit)
+      : {};
     const item = await prisma.householdPantryItem.update({
       where: { id: existing.id },
       data: {
         ...(name ?? {}),
-        ...(quantity !== undefined ? { quantity } : {}),
-        ...(unit !== undefined ? { unit } : {}),
+        ...measurements,
       },
     });
     return Response.json({ item: pantryItemFromRow(item) });

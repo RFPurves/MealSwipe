@@ -43,6 +43,7 @@ import {
   WEEKDAYS,
 } from "@/lib/meal-planner";
 import { mealIsSafeForHousehold, mealSafetyForHousehold } from "@/lib/meal-safety";
+import { formatMetricQuantity, metricDisplayQuantity } from "@/lib/metric";
 import type { Meal, OptimizationObjective, PlannerAction, PlannerProposal, ShoppingCategory, Weekday } from "@/types";
 
 const categoryIcons: Record<ShoppingCategory, string> = { Produce: "🥬", Protein: "🥚", Dairy: "🥛", Grains: "🌾", Pantry: "🫙", Other: "✦" };
@@ -257,8 +258,11 @@ export function WeekPlanner({ scope = "personal" }: { scope?: PlanningScope }) {
     if (!item) return;
     setEditingPantryId(id);
     setPantryDraftName(item.name);
-    setPantryDraftQuantity(item.quantity === null || item.quantity === undefined ? "" : String(item.quantity));
-    setPantryDraftUnit(item.unit ?? "");
+    const displayed = item.quantity !== null && item.quantity !== undefined && item.unit
+      ? metricDisplayQuantity(item.quantity, item.unit)
+      : { amount: item.quantity ?? "", unit: item.unit ?? "" };
+    setPantryDraftQuantity(String(displayed.amount));
+    setPantryDraftUnit(displayed.unit);
     setPantryStatus(null);
   };
 
@@ -393,8 +397,8 @@ export function WeekPlanner({ scope = "personal" }: { scope?: PlanningScope }) {
       <section className="pantry-card">
         <header><div className="pantry-icon"><PackageCheck size={22} /></div><div><p className="eyebrow">{isHousehold ? "What do we already have?" : "What do I already have?"}</p><h2>{isHousehold ? "Shared pantry" : "My pantry & fridge"}</h2><p className="pantry-shared-label"><Users size={11} /> {isHousehold ? "Shared with your household" : "Private to your account"}</p></div><label className="pantry-toggle"><input type="checkbox" checked={usePantryFirst} onChange={(event) => app.setUsePantryFirst(event.target.checked, scope)} /><span>Use these first</span></label></header>
         <div className="pantry-entry"><input aria-label="Add pantry items" value={pantryInput} onChange={(event) => setPantryInput(event.target.value)} placeholder="eggs, feta, spinach…" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addPantry(); } }} /><button type="button" onClick={() => void addPantry()} disabled={isSavingPantry}><Plus size={17} /> Add</button><label className="photo-upload"><input type="file" accept="image/*" onChange={analyzePhoto} disabled={isAnalyzingPhoto || isSavingPantry} /><ImagePlus size={17} /><span>{isAnalyzingPhoto ? "Looking…" : "Photo"}</span></label></div>
-        {pantryItems.length ? <div className="pantry-chips">{pantryItems.map((item) => <span key={item.id}><span>{item.name}{item.quantity !== null && item.quantity !== undefined ? ` · ${item.quantity}${item.unit ? ` ${item.unit}` : ""}` : ""}</span><button type="button" onClick={() => beginPantryEdit(item.id)} aria-label={`Edit ${item.name}`} disabled={isSavingPantry}><Pencil size={11} /></button><button type="button" onClick={() => void removePantryItem(item.id)} aria-label={`Remove ${item.name}`} disabled={isSavingPantry}><X size={12} /></button></span>)}</div> : <p className="pantry-empty">Add ingredients to prioritize them and keep them off the shopping list.</p>}
-        {editingPantryId ? <div className="pantry-edit"><input aria-label="Pantry item name" value={pantryDraftName} onChange={(event) => setPantryDraftName(event.target.value)} /><input aria-label="Pantry item quantity" type="number" min="0" step="any" placeholder="Qty" value={pantryDraftQuantity} onChange={(event) => setPantryDraftQuantity(event.target.value)} /><input aria-label="Pantry item unit" placeholder="Unit" value={pantryDraftUnit} onChange={(event) => setPantryDraftUnit(event.target.value)} /><button type="button" onClick={() => void savePantryEdit()} disabled={isSavingPantry}>Save</button><button type="button" onClick={() => setEditingPantryId(null)}>Cancel</button></div> : null}
+        {pantryItems.length ? <div className="pantry-chips">{pantryItems.map((item) => <span key={item.id}><span>{item.name}{item.quantity !== null && item.quantity !== undefined ? ` · ${item.unit ? formatMetricQuantity(item.quantity, item.unit) : item.quantity}` : ""}</span><button type="button" onClick={() => beginPantryEdit(item.id)} aria-label={`Edit ${item.name}`} disabled={isSavingPantry}><Pencil size={11} /></button><button type="button" onClick={() => void removePantryItem(item.id)} aria-label={`Remove ${item.name}`} disabled={isSavingPantry}><X size={12} /></button></span>)}</div> : <p className="pantry-empty">Add ingredients to prioritize them and keep them off the shopping list.</p>}
+        {editingPantryId ? <div className="pantry-edit"><input aria-label="Pantry item name" value={pantryDraftName} onChange={(event) => setPantryDraftName(event.target.value)} /><input aria-label="Pantry item quantity" type="number" min="0" step="any" placeholder="Qty" value={pantryDraftQuantity} onChange={(event) => setPantryDraftQuantity(event.target.value)} /><select aria-label="Pantry item unit" value={pantryDraftUnit} onChange={(event) => setPantryDraftUnit(event.target.value)}><option value="">No unit</option><option value="g">g</option><option value="kg">kg</option><option value="ml">ml</option><option value="l">l</option><option value="pc">pieces</option><option value="cloves">cloves</option><option value="slices">slices</option><option value="bunch">bunches</option></select><button type="button" onClick={() => void savePantryEdit()} disabled={isSavingPantry}>Save</button><button type="button" onClick={() => setEditingPantryId(null)}>Cancel</button></div> : null}
         {pantryStatus ? <p className="pantry-status" role="status">{pantryStatus}</p> : null}
         {photoItems.length ? <div className="photo-findings"><strong>We found—please confirm:</strong><div>{photoItems.map((item) => <span key={item}>{item}</span>)}</div>{photoNote ? <p>{photoNote}</p> : null}<footer><button type="button" onClick={() => void confirmPhotoItems()} disabled={isSavingPantry}>Confirm items</button><button type="button" onClick={() => { setPhotoItems([]); setPhotoNote(null); }}>Cancel</button></footer></div> : photoNote ? <p className="photo-note">{photoNote}</p> : null}
       </section>

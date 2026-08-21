@@ -1,5 +1,8 @@
 import { ApiError, apiFailure, requireAuthUser } from "@/lib/auth-user";
 import { prisma } from "@/lib/prisma";
+import { metricMeal } from "@/lib/metric";
+import type { Prisma } from "@prisma/client";
+import type { Meal } from "@/types";
 
 const visibilities = new Set(["PRIVATE", "HOUSEHOLD", "PUBLIC"]);
 
@@ -14,14 +17,15 @@ export async function POST(request: Request) {
     const meal = body.meal && typeof body.meal === "object" && !Array.isArray(body.meal) ? body.meal as Record<string, unknown> : null;
     const recipeIdentifier = typeof meal?.id === "string" ? meal.id.slice(0, 200) : "";
     const visibility = typeof body.visibility === "string" && visibilities.has(body.visibility) ? body.visibility : "PRIVATE";
-    if (!recipeIdentifier || typeof meal?.title !== "string") throw new ApiError(400, "A valid recipe is required.");
+    if (!recipeIdentifier || typeof meal?.title !== "string" || !Array.isArray(meal.ingredients)) throw new ApiError(400, "A valid recipe is required.");
+    const normalizedMeal = metricMeal(meal as unknown as Meal);
     await prisma.$transaction([
       prisma.savedRecipe.upsert({
         where: { userId_recipeIdentifier: { userId: user.id, recipeIdentifier } },
-        create: { userId: user.id, recipeIdentifier, recipe: jsonValue(meal), provenance: meal.source && typeof meal.source === "object" ? jsonValue(meal.source) : undefined, visibility: visibility as "PRIVATE" | "HOUSEHOLD" | "PUBLIC" },
-        update: { recipe: jsonValue(meal), provenance: meal.source && typeof meal.source === "object" ? jsonValue(meal.source) : undefined, visibility: visibility as "PRIVATE" | "HOUSEHOLD" | "PUBLIC" },
+        create: { userId: user.id, recipeIdentifier, recipe: jsonValue(normalizedMeal), provenance: meal.source && typeof meal.source === "object" ? jsonValue(meal.source) : undefined, visibility: visibility as "PRIVATE" | "HOUSEHOLD" | "PUBLIC" },
+        update: { recipe: jsonValue(normalizedMeal), provenance: meal.source && typeof meal.source === "object" ? jsonValue(meal.source) : undefined, visibility: visibility as "PRIVATE" | "HOUSEHOLD" | "PUBLIC" },
       }),
-      prisma.swipeEvent.create({ data: { userId: user.id, recipeIdentifier, action: "SAVED", mealSnapshot: jsonValue(meal) } }),
+      prisma.swipeEvent.create({ data: { userId: user.id, recipeIdentifier, action: "SAVED", mealSnapshot: jsonValue(normalizedMeal) } }),
     ]);
     return Response.json({ ok: true }, { status: 201 });
   } catch (error) {
@@ -59,4 +63,3 @@ export async function DELETE(request: Request) {
     return apiFailure(error);
   }
 }
-import type { Prisma } from "@prisma/client";

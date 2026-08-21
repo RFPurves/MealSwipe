@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, ArrowLeft, Clock3, ExternalLink, Play, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { useMealApp } from "@/components/app-provider";
 import { mealById } from "@/data/meals";
+import { formatMetricQuantity, metricInstruction } from "@/lib/metric";
 
 export function RecipeDetail({ mealId }: { mealId: string }) {
   const { dynamicMeals, hydrated } = useMealApp();
@@ -97,7 +98,7 @@ export function RecipeDetail({ mealId }: { mealId: string }) {
           {meal.ingredients.map((ingredient) => (
             <div key={ingredient.name}>
               <span>{ingredient.name}</span>
-              <strong>{ingredient.amount} {ingredient.unit}</strong>
+              <strong>{formatMetricQuantity(ingredient.amount, ingredient.unit)}</strong>
             </div>
           ))}
         </div>
@@ -107,7 +108,7 @@ export function RecipeDetail({ mealId }: { mealId: string }) {
         <div className="recipe-panel-heading"><div><p className="eyebrow">Cook along</p><h2>Method</h2></div></div>
         <ol className="recipe-method">
           {(meal.instructions ?? ["Prepare the ingredients.", "Follow the source recipe and cook until done."]).map((instruction, index) => (
-            <li key={`${index}-${instruction}`}><span>{index + 1}</span><p>{instruction}</p></li>
+            <li key={`${index}-${instruction}`}><span>{index + 1}</span><p>{metricInstruction(instruction)}</p></li>
           ))}
         </ol>
       </section>
